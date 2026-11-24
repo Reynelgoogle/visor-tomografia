@@ -1,0 +1,5 @@
+{
+  "name": "Prototipo Visor de Tomografía",
+  "description": "Visor web estático de tomografía con 4 vistas sincronizadas (axial, coronal, sagital MPR y 3D en WebGL2), carga local de DICOM, ventanas HU, mediciones/ROI, cine y exportación PNG.",
+  "requestFramePermissions": []
+}
