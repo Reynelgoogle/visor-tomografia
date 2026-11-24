@@ -1,0 +1,1555 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Prototipo Visor de Tomografía</title>
+    <style>
+      :root{
+        --bg:#08090c; --panel:#101218; --panel-2:#151823; --panel-3:#1b1f2c;
+        --line:#242938; --line-soft:#1a1e2a;
+        --text:#eceef4; --muted:#9aa3b4; --faint:#6b7385;
+        --accent:#f05a9d; --accent-soft:rgba(240,90,157,.14);
+        --c-axial:#f05a9d; --c-coronal:#3ec6e0; --c-sagital:#a8d94e; --c-3d:#f5b83d;
+        --vp-bg:#000;
+        --radius:10px;
+        --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+        --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+      }
+      @media (prefers-color-scheme: light){
+        :root{
+          --bg:#e9ebf0; --panel:#ffffff; --panel-2:#f4f5f9; --panel-3:#eceef4;
+          --line:#d3d7e2; --line-soft:#e2e5ec;
+          --text:#171a21; --muted:#5a6274; --faint:#8a91a3;
+          --accent-soft:rgba(240,90,157,.12);
+        }
+      }
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+      button{font-family:inherit;cursor:pointer}
+      input[type=range]{accent-color:var(--accent)}
+      :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+      #app{display:flex;flex-direction:column;height:100dvh;min-height:0}
+
+      /* ---------- Toolbar ---------- */
+      .toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);z-index:5}
+      .tool-group{display:flex;align-items:center;gap:4px}
+      .tool-sep{width:1px;align-self:stretch;background:var(--line);margin:2px 4px}
+      .tbtn{display:inline-flex;flex-direction:column;align-items:center;gap:2px;min-width:52px;padding:6px 7px 5px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.02em;line-height:1}
+      .tbtn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+      .tbtn:hover{background:var(--panel-3);color:var(--text)}
+      .tbtn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+      .tbtn.toggle-on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+      .toolbar .spacer{flex:1}
+      .layout-group{display:flex;gap:4px}
+      .lbtn{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--muted);font-size:11px;font-weight:700}
+      .lbtn:hover{color:var(--text)}
+      .lbtn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+      /* ---------- Work area ---------- */
+      .workarea{flex:1;display:flex;min-height:0}
+      .panel{width:248px;flex:none;background:var(--panel);overflow-y:auto;padding:14px 12px 18px;scrollbar-width:thin}
+      .panel.left{border-right:1px solid var(--line)}
+      .panel.right{border-left:1px solid var(--line)}
+      .panel h3{margin:16px 2px 8px;font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+      .panel h3:first-child{margin-top:0}
+      .study-card{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:var(--radius);padding:10px 11px}
+      .study-card .row{display:flex;justify-content:space-between;gap:8px;padding:2.5px 0;font-size:12px}
+      .study-card .row b{font-weight:600;text-align:right}
+      .study-card .row span{color:var(--muted)}
+      .synthetic-note{margin-top:9px;font-size:11px;line-height:1.45;color:var(--muted);border-top:1px dashed var(--line);padding-top:8px}
+      .synthetic-note strong{color:var(--accent)}
+
+      .chips{display:flex;flex-wrap:wrap;gap:5px}
+      .chip{padding:6px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel-2);color:var(--muted);font-size:11.5px;font-weight:600}
+      .chip:hover{color:var(--text)}
+      .chip.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+      .ctl{margin:10px 0}
+      .ctl .lab{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:600;margin-bottom:4px}
+      .ctl .lab output{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600}
+      .ctl input[type=range]{width:100%;height:22px;margin:0}
+      .ctl .sub{font-size:10.5px;color:var(--faint);margin-top:1px}
+
+      .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--text);font-size:12.5px;font-weight:600}
+      .btn:hover{border-color:var(--accent);color:var(--accent)}
+      .btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+      .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+      .btn.primary:hover{color:#fff;filter:brightness(1.08)}
+      .btn-row{display:flex;gap:6px}
+      .btn-row .btn{flex:1}
+
+      .readout{font-family:var(--mono);font-size:12px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:var(--radius);padding:9px 11px;line-height:1.75}
+      .readout .k{color:var(--faint)}
+      .readout .hu{font-size:19px;font-weight:600;color:var(--text)}
+      .empty-note{font-size:12px;color:var(--faint);line-height:1.5}
+      .measure-item{display:flex;align-items:center;gap:7px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:8px;padding:7px 9px;margin-bottom:6px;font-size:12px}
+      .measure-item .dot{width:9px;height:9px;border-radius:50%;flex:none}
+      .measure-item .val{font-family:var(--mono);font-weight:600;margin-left:auto}
+      .measure-item button{border:none;background:none;color:var(--faint);font-size:15px;line-height:1;padding:2px}
+      .measure-item button:hover{color:var(--accent)}
+      .hint{font-size:11px;color:var(--faint);line-height:1.55;margin-top:6px}
+
+      /* ---------- Viewport grid ---------- */
+      .grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:5px;padding:5px;background:var(--bg);min-width:0;min-height:0}
+      .grid.single{grid-template-columns:1fr;grid-template-rows:1fr}
+      .grid.single .vp{display:none}
+      .grid.single .vp.expanded{display:flex}
+      .vp{display:flex;flex-direction:column;background:var(--vp-bg);border:1.5px solid var(--line);border-radius:10px;overflow:hidden;min-height:0;min-width:0}
+      .vp.active{border-color:var(--plane,var(--accent))}
+      .vp-head{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--panel);border-bottom:1px solid var(--line-soft);flex:none}
+      .vp-title{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--plane,var(--text))}
+      .vp-slice{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
+      .vp-expand{border:1px solid var(--line);background:var(--panel-2);color:var(--muted);border-radius:6px;width:24px;height:24px;display:grid;place-items:center;padding:0}
+      .vp-expand svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+      .vp-expand:hover{color:var(--accent);border-color:var(--accent)}
+      .vp-body{position:relative;flex:1;min-height:0;overflow:hidden;touch-action:none;cursor:crosshair}
+      .vp-body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+      .vp-overlay{pointer-events:none}
+      .ori{position:absolute;font-family:var(--mono);font-size:12px;font-weight:600;color:rgba(255,255,255,.75);text-shadow:0 1px 3px #000;pointer-events:none;z-index:3}
+      .ori-t{top:6px;left:50%;transform:translateX(-50%)}
+      .ori-b{bottom:6px;left:50%;transform:translateX(-50%)}
+      .ori-l{left:8px;top:50%;transform:translateY(-50%)}
+      .ori-r{right:8px;top:50%;transform:translateY(-50%)}
+      .vp-corner{position:absolute;font-family:var(--mono);font-size:10.5px;color:rgba(255,255,255,.65);text-shadow:0 1px 3px #000;pointer-events:none;z-index:3;line-height:1.5;white-space:pre}
+      .vp-corner.bl{left:8px;bottom:6px}
+      .vp-corner.br{right:8px;bottom:6px;text-align:right}
+      .gl-fallback{position:absolute;inset:0;display:none;place-items:center;color:#ccc;font-size:13px;padding:20px;text-align:center;z-index:4}
+
+      /* ---------- Status bar ---------- */
+      .statusbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:6px 12px;background:var(--panel);border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+      .statusbar .st b{color:var(--text);font-weight:600}
+      .statusbar .note{margin-left:auto;font-family:var(--sans);font-size:11px}
+
+      .loading{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:50;transition:opacity .4s}
+      .loading.done{opacity:0;pointer-events:none}
+      .loading .box{text-align:center}
+      .loading .ring{width:46px;height:46px;margin:0 auto 14px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin 0.9s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+      .loading p{color:var(--muted);font-size:13px;font-weight:600;margin:0}
+      @media (prefers-reduced-motion: reduce){ .loading .ring{animation:none} }
+
+      /* ---------- Responsive ---------- */
+      @media (max-width:1080px){
+        .panel{width:212px}
+      }
+      @media (max-width:860px){
+        #app{height:auto;min-height:100dvh}
+        .workarea{flex-direction:column}
+        .grid{order:1;grid-template-columns:1fr;grid-template-rows:none}
+        .grid .vp{height:340px}
+        .grid.single .vp.expanded{height:420px}
+        .panel.left{order:2;width:auto;border-right:none;border-top:1px solid var(--line)}
+        .panel.right{order:3;width:auto;border-left:none;border-top:1px solid var(--line)}
+        .tbtn{min-width:44px}
+        .tbtn span{display:none}
+        .statusbar .note{margin-left:0}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="loading" id="loading"><div class="box"><div class="ring"></div><p>Generando volumen de demostración…</p></div></div>
+
+    <div id="app">
+      <!-- ======= Toolbar: herramientas ======= -->
+      <header class="toolbar" role="toolbar" aria-label="Herramientas del visor">
+        <div class="tool-group" id="toolGroup">
+          <button class="tbtn active" data-tool="explore" title="Explorar: arrastra para mover el cursor sincronizado entre vistas">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span>Explorar</span>
+          </button>
+          <button class="tbtn" data-tool="window" title="Ventana: arrastra ↔ para el ancho (WW) y ↕ para el centro (WL)">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></svg><span>Ventana</span>
+          </button>
+          <button class="tbtn" data-tool="measure" title="Medir: dos clics en una vista para trazar una distancia">
+            <svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M8 14l1.5 1.5M11 11l1.5 1.5M14 8l1.5 1.5"/></svg><span>Medir</span>
+          </button>
+          <button class="tbtn" data-tool="roi" title="ROI: arrastra un rectángulo para medir densidad media (HU)">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.5"/></svg><span>ROI</span>
+          </button>
+          <button class="tbtn" data-tool="pan" title="Desplazar la imagen dentro de la vista">
+            <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg><span>Desplazar</span>
+          </button>
+          <button class="tbtn" data-tool="zoom" title="Zoom: arrastra ↕ o usa la rueda con Ctrl">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg><span>Zoom</span>
+          </button>
+        </div>
+        <div class="tool-sep"></div>
+        <div class="tool-group">
+          <button class="tbtn" id="btnCine" title="Cine: recorre los cortes de la vista activa">
+            <svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg><span>Cine</span>
+          </button>
+          <button class="tbtn" id="btnInvert" title="Invertir la escala de grises">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16" opacity=".0"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none" transform="translate(-8 0) scale(1)"/><path d="M8 4h8v16H8z" fill="currentColor" stroke="none" opacity=".85"/></svg><span>Invertir</span>
+          </button>
+          <button class="tbtn" id="btnDownload" title="Descargar un PNG de la vista activa">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg><span>PNG</span>
+          </button>
+          <button class="tbtn" id="btnReset" title="Restablecer posición, ventana y zoom">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span>Reiniciar</span>
+          </button>
+        </div>
+        <div class="spacer"></div>
+        <div class="layout-group" role="group" aria-label="Disposición de vistas">
+          <button class="lbtn active" data-layout="quad">2 × 2</button>
+          <button class="lbtn" data-layout="axial">Axial</button>
+          <button class="lbtn" data-layout="coronal">Coronal</button>
+          <button class="lbtn" data-layout="sagital">Sagital</button>
+          <button class="lbtn" data-layout="volume">3D</button>
+        </div>
+      </header>
+
+      <div class="workarea">
+        <!-- ======= Panel izquierdo ======= -->
+        <aside class="panel left">
+          <h3>Estudio</h3>
+          <div class="study-card">
+            <div class="row"><span>Paciente</span><b id="stPatient">Fantoma de demostración</b></div>
+            <div class="row"><span>Estudio</span><b id="stStudy">TC de cráneo</b></div>
+            <div class="row"><span>Serie</span><b id="stSeries">Axial 2,0 mm</b></div>
+            <div class="row"><span>Cortes</span><b id="stSlices">96</b></div>
+            <div class="row"><span>Matriz</span><b id="stMatrix">128 × 128</b></div>
+            <div class="row"><span>Voxel</span><b id="stVoxel">1,8 × 1,8 × 2,0 mm</b></div>
+            <div class="row"><span>Modalidad</span><b id="stModality">CT</b></div>
+            <p class="synthetic-note" id="studyNote"><strong>Datos sintéticos:</strong> este volumen se genera matemáticamente en tu navegador para probar el visor. No es un paciente real ni sirve para diagnóstico.</p>
+            <div class="btn-row" style="margin-top:10px">
+              <button class="btn" id="btnLoadFiles">Cargar DICOM</button>
+              <button class="btn" id="btnLoadFolder">Carpeta</button>
+            </div>
+            <button class="btn" id="btnPhantom" style="margin-top:6px;display:none">Volver al fantoma</button>
+            <div id="loadStatus" class="hint" role="status">También puedes arrastrar archivos DICOM sobre las vistas. Todo se procesa en tu navegador; nada se sube a ningún servidor. Sin compresión: transfer syntax sin comprimir (LE/BE, explícita o implícita).</div>
+            <input type="file" id="fileDicom" multiple hidden />
+            <input type="file" id="fileFolder" webkitdirectory hidden />
+          </div>
+
+          <h3>Ventana (contraste)</h3>
+          <div class="chips" id="windowPresets">
+            <button class="chip active" data-ww="80" data-wl="40">Cerebro</button>
+            <button class="chip" data-ww="350" data-wl="50">Tejidos blandos</button>
+            <button class="chip" data-ww="400" data-wl="60">Abdomen</button>
+            <button class="chip" data-ww="1800" data-wl="400">Hueso</button>
+            <button class="chip" data-ww="1500" data-wl="-600">Pulmón</button>
+            <button class="chip" data-ww="200" data-wl="30">Angio</button>
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngWW">Ancho · WW</label><output id="outWW">80</output></div>
+            <input type="range" id="rngWW" min="1" max="2400" value="80" />
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngWL">Centro · WL</label><output id="outWL">40</output></div>
+            <input type="range" id="rngWL" min="-1000" max="1200" value="40" />
+          </div>
+
+          <h3>Posición del cursor</h3>
+          <div class="ctl">
+            <div class="lab"><label for="rngZ">Axial · Z</label><output id="outZ">—</output></div>
+            <input type="range" id="rngZ" min="0" max="95" value="48" />
+            <div class="sub">Rueda del ratón sobre la vista axial también cambia el corte.</div>
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngY">Coronal · Y</label><output id="outY">—</output></div>
+            <input type="range" id="rngY" min="0" max="127" value="64" />
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngX">Sagital · X</label><output id="outX">—</output></div>
+            <input type="range" id="rngX" min="0" max="127" value="64" />
+          </div>
+          <p class="hint">Las tres vistas 2D y el volumen 3D comparten la misma posición: mueve el cursor en una y las demás lo siguen (MPR sincronizado).</p>
+        </aside>
+
+        <!-- ======= Rejilla de vistas ======= -->
+        <main class="grid" id="grid">
+          <section class="vp active" data-view="axial" style="--plane:var(--c-axial)">
+            <div class="vp-head"><span class="vp-title">Axial</span><span class="vp-slice" data-slice-label></span>
+              <button class="vp-expand" data-expand="axial" title="Ampliar vista axial"><svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button></div>
+            <div class="vp-body" data-body="axial">
+              <canvas class="vp-canvas"></canvas><canvas class="vp-overlay"></canvas>
+              <span class="ori ori-t">A</span><span class="ori ori-b">P</span><span class="ori ori-l">R</span><span class="ori ori-r">L</span>
+              <span class="vp-corner bl" data-corner-bl></span><span class="vp-corner br" data-corner-br></span>
+            </div>
+          </section>
+
+          <section class="vp" data-view="coronal" style="--plane:var(--c-coronal)">
+            <div class="vp-head"><span class="vp-title">Coronal</span><span class="vp-slice" data-slice-label></span>
+              <button class="vp-expand" data-expand="coronal" title="Ampliar vista coronal"><svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button></div>
+            <div class="vp-body" data-body="coronal">
+              <canvas class="vp-canvas"></canvas><canvas class="vp-overlay"></canvas>
+              <span class="ori ori-t">H</span><span class="ori ori-b">F</span><span class="ori ori-l">R</span><span class="ori ori-r">L</span>
+              <span class="vp-corner bl" data-corner-bl></span><span class="vp-corner br" data-corner-br></span>
+            </div>
+          </section>
+
+          <section class="vp" data-view="sagital" style="--plane:var(--c-sagital)">
+            <div class="vp-head"><span class="vp-title">Sagital</span><span class="vp-slice" data-slice-label></span>
+              <button class="vp-expand" data-expand="sagital" title="Ampliar vista sagital"><svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button></div>
+            <div class="vp-body" data-body="sagital">
+              <canvas class="vp-canvas"></canvas><canvas class="vp-overlay"></canvas>
+              <span class="ori ori-t">H</span><span class="ori ori-b">F</span><span class="ori ori-l">A</span><span class="ori ori-r">P</span>
+              <span class="vp-corner bl" data-corner-bl></span><span class="vp-corner br" data-corner-br></span>
+            </div>
+          </section>
+
+          <section class="vp" data-view="volume" style="--plane:var(--c-3d)">
+            <div class="vp-head"><span class="vp-title">Reconstrucción 3D</span><span class="vp-slice" id="glModeLabel">Volumen · VR</span>
+              <button class="vp-expand" data-expand="volume" title="Ampliar vista 3D"><svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button></div>
+            <div class="vp-body" data-body="volume" style="cursor:grab">
+              <canvas id="glCanvas"></canvas>
+              <div class="gl-fallback" id="glFallback">Tu navegador no ofrece WebGL2, así que la reconstrucción 3D no puede dibujarse aquí. Las vistas 2D funcionan con normalidad.</div>
+              <span class="vp-corner bl">Arrastra para girar · rueda para acercar</span>
+            </div>
+          </section>
+        </main>
+
+        <!-- ======= Panel derecho ======= -->
+        <aside class="panel right">
+          <h3>Lectura bajo el cursor</h3>
+          <div class="readout">
+            <div><span class="k">Densidad&nbsp;&nbsp;</span><span class="hu" id="roHU">—</span> <span class="k">HU</span></div>
+            <div><span class="k">Posición&nbsp;&nbsp;</span><span id="roPos">—</span></div>
+            <div><span class="k">Tejido aprox.&nbsp;&nbsp;</span><span id="roTissue">—</span></div>
+          </div>
+
+          <h3>Reconstrucción 3D</h3>
+          <div class="chips" id="glModes">
+            <button class="chip active" data-glmode="0">Volumen (VR)</button>
+            <button class="chip" data-glmode="1">MIP</button>
+            <button class="chip" data-glmode="2">Hueso</button>
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngThr">Umbral de tejido</label><output id="outThr">−200 HU</output></div>
+            <input type="range" id="rngThr" min="-1000" max="900" value="-200" />
+            <div class="sub">Por debajo de este valor el tejido se vuelve transparente en el volumen.</div>
+          </div>
+          <div class="ctl">
+            <div class="lab"><label for="rngOp">Opacidad</label><output id="outOp">85 %</output></div>
+            <input type="range" id="rngOp" min="10" max="100" value="85" />
+          </div>
+          <div class="btn-row">
+            <button class="btn" id="btnSpin">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3v5h-5"/></svg>Girar
+            </button>
+            <button class="btn" id="btnGlReset">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Centrar
+            </button>
+          </div>
+
+          <h3>Mediciones</h3>
+          <div id="measureList"><p class="empty-note">Sin mediciones todavía. Activa «Medir» y haz dos clics en cualquier vista 2D.</p></div>
+          <button class="btn" id="btnClearMeasures" style="margin-top:4px">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Borrar mediciones
+          </button>
+
+          <h3>Región de interés (ROI)</h3>
+          <div id="roiInfo"><p class="empty-note">Sin ROI. Activa «ROI» y arrastra un rectángulo sobre una vista para obtener la densidad media en HU.</p></div>
+
+          <h3>Atajos</h3>
+          <p class="hint">
+            Rueda: cambiar de corte · Ctrl + rueda: zoom · Flechas ↑↓: corte anterior/siguiente de la vista activa · Doble clic en una vista: ampliarla · Tecla <b>Esc</b>: volver a 2 × 2.
+          </p>
+        </aside>
+      </div>
+
+      <footer class="statusbar">
+        <span class="st">Cursor <b id="stPos">x 64 · y 64 · z 49</b></span>
+        <span class="st">Ventana <b id="stWin">WW 80 · WL 40</b></span>
+        <span class="st">Vista activa <b id="stView">Axial</b></span>
+        <span class="st" id="stZoom">Zoom 100 %</span>
+        <span class="note">Prototipo fase 1 · MPR + VR por GPU sobre volumen sintético</span>
+      </footer>
+    </div>
+
+    <script>
+    'use strict';
+    /* ============================================================
+       Volumen sintético (fantoma craneal) — generado en el cliente
+       NX x NY cortes axiales de NZ… dimensiones:
+       x: derecha→izquierda del paciente · y: anterior→posterior · z: caudal→craneal
+       Valores en unidades Hounsfield (HU).
+       ============================================================ */
+    var NX = 128, NY = 128, NZ = 96;
+    var SPX = 1.8, SPY = 1.8, SPZ = 2.0; // mm por voxel
+    var HU_MIN = -1024, HU_RANGE = 2424; // hasta +1400
+
+    var volume = new Float32Array(NX * NY * NZ);
+    function vIdx(x, y, z){ return (z * NY + y) * NX + x; }
+    function huAt(x, y, z){
+      x = Math.max(0, Math.min(NX - 1, x | 0));
+      y = Math.max(0, Math.min(NY - 1, y | 0));
+      z = Math.max(0, Math.min(NZ - 1, z | 0));
+      return volume[vIdx(x, y, z)];
+    }
+    function hashNoise(x, y, z){
+      var s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+      return (s - Math.floor(s)) * 2 - 1;
+    }
+    function ellipsoid(fx, fy, fz, cx, cy, cz, rx, ry, rz){
+      var dx = (fx - cx) / rx, dy = (fy - cy) / ry, dz = (fz - cz) / rz;
+      return dx * dx + dy * dy + dz * dz;
+    }
+
+    function generateVolume(){
+      var cx = (NX - 1) / 2, cy = (NY - 1) / 2;
+      for (var z = 0; z < NZ; z++){
+        var fz = z / (NZ - 1); // 0 caudal → 1 craneal
+        // Perfil craneal: más estrecho en la base y en el vértice
+        var prof = Math.sqrt(Math.max(0.03, 1 - Math.pow((fz - 0.40) / 0.80, 2)));
+        if (fz > 0.78) prof *= 1 - 0.30 * (fz - 0.78) / 0.22;
+        if (fz < 0.10) prof *= 0.86 + 1.4 * fz;
+        var radX = 0.80 * prof, radY = 0.95 * prof;
+        for (var y = 0; y < NY; y++){
+          var fy = (y - cy) / (NY / 2); // -1 anterior … +1 posterior
+          for (var x = 0; x < NX; x++){
+            var fx = (x - cx) / (NX / 2); // -1 derecha … +1 izquierda
+            var d = Math.sqrt(Math.pow(fx / radX, 2) + Math.pow(fy / radY, 2));
+            var hu;
+            var n = hashNoise(x, y, z);
+
+            if (d > 1.09){
+              hu = -1000 + n * 12; // aire
+            } else if (d > 1.0){
+              hu = 42 + n * 7; // cuero cabelludo / partes blandas externas
+            } else if (d > 0.885){
+              hu = 860 + 130 * Math.sin(fx * 22 + fz * 30) + n * 60; // calota (hueso)
+            } else {
+              // Encéfalo: sustancia blanca 28 HU, gris cortical 40 HU
+              hu = (d > 0.70 ? 39 : 29)
+                 + 3.5 * Math.sin(fx * 9.1 + fz * 14.0)
+                 + 3.0 * Math.sin(fy * 11.3 - fz * 9.0)
+                 + n * 4;
+              // Surcos corticales tenues
+              if (d > 0.80 && Math.sin(Math.atan2(fy, fx) * 14 + fz * 40) > 0.86) hu = 10;
+            }
+
+            // ---- Estructuras internas ----
+            // Ventrículos laterales (LCR ≈ 6 HU)
+            if (ellipsoid(fx, fy, fz,  0.17, 0.03, 0.54, 0.085, 0.30, 0.10) < 1 ||
+                ellipsoid(fx, fy, fz, -0.17, 0.03, 0.54, 0.085, 0.30, 0.10) < 1) hu = 6 + n * 2;
+            // Tercer ventrículo
+            if (ellipsoid(fx, fy, fz, 0, 0.06, 0.47, 0.022, 0.16, 0.07) < 1) hu = 6 + n * 2;
+            // Núcleos basales (algo más densos)
+            if (ellipsoid(fx, fy, fz,  0.30, 0.10, 0.45, 0.11, 0.15, 0.08) < 1 ||
+                ellipsoid(fx, fy, fz, -0.30, 0.10, 0.45, 0.11, 0.15, 0.08) < 1) hu = 41 + n * 3;
+            // Tálamos
+            if (ellipsoid(fx, fy, fz,  0.13, 0.16, 0.44, 0.08, 0.11, 0.07) < 1 ||
+                ellipsoid(fx, fy, fz, -0.13, 0.16, 0.44, 0.08, 0.11, 0.07) < 1) hu = 36 + n * 3;
+            // Tronco encefálico y cerebelo (fosa posterior, cortes bajos)
+            if (fz < 0.26 && ellipsoid(fx, fy, fz, 0, 0.10, 0.14, 0.13, 0.14, 0.13) < 1) hu = 33 + n * 3;
+            if (fz < 0.24 && fy > 0.30 && d < 0.88) hu = 34 + 5 * Math.sin(fz * 320 + fy * 20) + n * 3; // folias cerebelosas
+            // Hoz cerebral
+            if (Math.abs(fx) < 0.008 && fy < 0.25 && fz > 0.55 && d < 0.88) hu = 56;
+            // Calcificación pineal y plexos coroideos
+            if (ellipsoid(fx, fy, fz, 0, 0.30, 0.52, 0.028, 0.028, 0.02) < 1) hu = 320;
+            if (ellipsoid(fx, fy, fz,  0.17, 0.26, 0.52, 0.03, 0.05, 0.025) < 1 ||
+                ellipsoid(fx, fy, fz, -0.17, 0.26, 0.52, 0.03, 0.05, 0.025) < 1) hu = 210;
+            // Polígono de Willis (vasos con contraste tenue)
+            var willis = [[0, -0.02], [0.10, 0.06], [-0.10, 0.06], [0.06, 0.16], [-0.06, 0.16]];
+            for (var w = 0; w < willis.length; w++){
+              if (ellipsoid(fx, fy, fz, willis[w][0], willis[w][1], 0.30, 0.022, 0.022, 0.016) < 1) hu = 58;
+            }
+            // ---- Cara y senos (tercio inferior, lado anterior) ----
+            // Órbitas: globo ocular en grasa
+            var orbL = ellipsoid(fx, fy, fz,  0.36, -0.60, 0.17, 0.155, 0.17, 0.10);
+            var orbR = ellipsoid(fx, fy, fz, -0.36, -0.60, 0.17, 0.155, 0.17, 0.10);
+            if (orbL < 1 || orbR < 1){
+              var eye = ellipsoid(fx, fy, fz, fx > 0 ? 0.36 : -0.36, -0.66, 0.17, 0.085, 0.085, 0.06);
+              hu = eye < 1 ? 24 + n * 3 : -62 + n * 8;
+            }
+            // Senos maxilares (aire)
+            if (ellipsoid(fx, fy, fz,  0.27, -0.58, 0.075, 0.11, 0.13, 0.055) < 1 ||
+                ellipsoid(fx, fy, fz, -0.27, -0.58, 0.075, 0.11, 0.13, 0.055) < 1) hu = -940 + n * 15;
+            // Seno frontal
+            if (ellipsoid(fx, fy, fz, 0, -0.80, 0.36, 0.16, 0.06, 0.055) < 1) hu = -950 + n * 15;
+            // Cavidad nasal y celdillas etmoidales
+            if (Math.abs(fx) < 0.10 && fy < -0.62 && fy > -0.86 && fz > 0.04 && fz < 0.30) hu = -500 + n * 120;
+            if (Math.abs(fx) < 0.035 && fy < -0.66 && fy > -0.84 && fz > 0.05 && fz < 0.28) hu = 45; // tabique
+            // Seno esfenoidal
+            if (ellipsoid(fx, fy, fz, 0, -0.28, 0.16, 0.10, 0.10, 0.06) < 1) hu = -930 + n * 15;
+            // Base del cráneo: más hueso en cortes muy bajos
+            if (fz < 0.07 && d > 0.55 && d <= 1.0 && Math.abs(Math.sin(fx * 16 + fy * 9)) > 0.35) hu = 700 + n * 60;
+
+            volume[vIdx(x, y, z)] = hu;
+          }
+        }
+      }
+    }
+
+    generateVolume();
+
+    /* ============================================================
+       Estado global del visor
+       ============================================================ */
+    var state = {
+      pos: { x: 64, y: 64, z: 48 },
+      ww: 80, wl: 40, invert: false,
+      tool: 'explore',
+      activeView: 'axial',
+      layout: 'quad',
+      playing: false,
+      measures: [],       // {id, view, u1,v1,u2,v2, mm}
+      measurePending: null,
+      roi: null,          // {view, u1,v1,u2,v2, mean,min,max,count}
+      roiPending: null
+    };
+    var measureSeq = 0;
+    var PLANE_COLORS = { axial: '#f05a9d', coronal: '#3ec6e0', sagital: '#a8d94e' };
+    var VIEW_NAMES = { axial: 'Axial', coronal: 'Coronal', sagital: 'Sagital', volume: '3D' };
+
+    // Definición de planos: u,v en píxeles de imagen; axis = eje que recorre el corte
+    var VIEWS = {
+      axial:   { w: NX, h: NY, axis: 'z', max: NZ - 1,
+                 get: function(u, v){ return huAt(u, v, state.pos.z); },
+                 cross: function(){ return { u: state.pos.x, v: state.pos.y }; },
+                 setCross: function(u, v){ state.pos.x = u; state.pos.y = v; },
+                 spacing: function(){ return { su: SPX, sv: SPY }; },
+                 sliceText: function(){ return 'Corte ' + (state.pos.z + 1) + ' / ' + NZ; } },
+      coronal: { w: NX, h: NZ, axis: 'y', max: NY - 1,
+                 get: function(u, v){ return huAt(u, state.pos.y, NZ - 1 - v); },
+                 cross: function(){ return { u: state.pos.x, v: NZ - 1 - state.pos.z }; },
+                 setCross: function(u, v){ state.pos.x = u; state.pos.z = NZ - 1 - v; },
+                 spacing: function(){ return { su: SPX, sv: SPZ }; },
+                 sliceText: function(){ return 'Corte ' + (state.pos.y + 1) + ' / ' + NY; } },
+      sagital: { w: NY, h: NZ, axis: 'x', max: NX - 1,
+                 get: function(u, v){ return huAt(state.pos.x, u, NZ - 1 - v); },
+                 cross: function(){ return { u: state.pos.y, v: NZ - 1 - state.pos.z }; },
+                 setCross: function(u, v){ state.pos.y = u; state.pos.z = NZ - 1 - v; },
+                 spacing: function(){ return { su: SPY, sv: SPZ }; },
+                 sliceText: function(){ return 'Corte ' + (state.pos.x + 1) + ' / ' + NX; } }
+    };
+    var viewState = {
+      axial:   { zoom: 1, panX: 0, panY: 0 },
+      coronal: { zoom: 1, panX: 0, panY: 0 },
+      sagital: { zoom: 1, panX: 0, panY: 0 }
+    };
+
+    /* ============================================================
+       Render 2D
+       ============================================================ */
+    var vpEls = {};
+    ['axial', 'coronal', 'sagital'].forEach(function(name){
+      var section = document.querySelector('.vp[data-view="' + name + '"]');
+      vpEls[name] = {
+        section: section,
+        body: section.querySelector('.vp-body'),
+        canvas: section.querySelector('.vp-canvas'),
+        overlay: section.querySelector('.vp-overlay'),
+        sliceLabel: section.querySelector('[data-slice-label]'),
+        cornerBL: section.querySelector('[data-corner-bl]'),
+        cornerBR: section.querySelector('[data-corner-br]'),
+        off: document.createElement('canvas')
+      };
+      vpEls[name].off.width = VIEWS[name].w;
+      vpEls[name].off.height = VIEWS[name].h;
+    });
+
+    function fitTransform(name, cw, ch){
+      var def = VIEWS[name], vs = viewState[name];
+      var fit = Math.min(cw / def.w, ch / def.h);
+      var scale = fit * vs.zoom;
+      return {
+        scale: scale,
+        ox: (cw - def.w * scale) / 2 + vs.panX,
+        oy: (ch - def.h * scale) / 2 + vs.panY
+      };
+    }
+    function imgToScreen(name, t, u, v){ return { x: t.ox + (u + 0.5) * t.scale, y: t.oy + (v + 0.5) * t.scale }; }
+    function screenToImg(name, t, px, py){
+      return { u: (px - t.ox) / t.scale - 0.5, v: (py - t.oy) / t.scale - 0.5 };
+    }
+
+    function buildSliceImage(name){
+      var def = VIEWS[name];
+      var off = vpEls[name].off;
+      var ctx = off.getContext('2d');
+      var img = ctx.createImageData(def.w, def.h);
+      var data = img.data;
+      var low = state.wl - state.ww / 2, range = state.ww;
+      for (var v = 0; v < def.h; v++){
+        for (var u = 0; u < def.w; u++){
+          var hu = def.get(u, v);
+          var g = (hu - low) / range;
+          g = g < 0 ? 0 : (g > 1 ? 1 : g);
+          if (state.invert) g = 1 - g;
+          var byte = (g * 255) | 0;
+          var i = (v * def.w + u) * 4;
+          data[i] = byte; data[i + 1] = byte; data[i + 2] = byte; data[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    function sizeCanvas(canvas){
+      var r = canvas.getBoundingClientRect();
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      var w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
+      if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+      return { w: r.width, h: r.height, dpr: dpr };
+    }
+
+    function renderView(name){
+      var el = vpEls[name], def = VIEWS[name];
+      buildSliceImage(name);
+      var s = sizeCanvas(el.canvas);
+      sizeCanvas(el.overlay);
+      var ctx = el.canvas.getContext('2d');
+      ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, s.w, s.h);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      var t = fitTransform(name, s.w, s.h);
+      ctx.drawImage(el.off, t.ox, t.oy, def.w * t.scale, def.h * t.scale);
+      el._t = t; el._size = s;
+      el.sliceLabel.textContent = def.sliceText() + '  ·  ' + def.w + '×' + def.h;
+      el.cornerBL.textContent = 'WW ' + Math.round(state.ww) + '  WL ' + Math.round(state.wl);
+      el.cornerBR.textContent = 'Zoom ' + Math.round(viewState[name].zoom * 100) + ' %';
+      drawOverlay(name);
+    }
+
+    function drawOverlay(name){
+      var el = vpEls[name];
+      var s = el._size, t = el._t;
+      if (!s || !t) return;
+      var ctx = el.overlay.getContext('2d');
+      ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+      ctx.clearRect(0, 0, s.w, s.h);
+      var def = VIEWS[name];
+
+      // Cursor sincronizado (crosshair con hueco central)
+      var c = def.cross();
+      var p = imgToScreen(name, t, c.u, c.v);
+      ctx.strokeStyle = PLANE_COLORS[name]; ctx.lineWidth = 1; ctx.globalAlpha = 0.9;
+      var gap = 10;
+      ctx.beginPath();
+      ctx.moveTo(0, p.y); ctx.lineTo(p.x - gap, p.y);
+      ctx.moveTo(p.x + gap, p.y); ctx.lineTo(s.w, p.y);
+      ctx.moveTo(p.x, 0); ctx.lineTo(p.x, p.y - gap);
+      ctx.moveTo(p.x, p.y + gap); ctx.lineTo(p.x, s.h);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.strokeStyle = PLANE_COLORS[name]; ctx.stroke();
+
+      // Mediciones de esta vista
+      ctx.font = '600 12px "IBM Plex Mono", monospace';
+      state.measures.forEach(function(m){
+        if (m.view !== name) return;
+        if (m.slice !== undefined && m.slice !== state.pos[def.axis]) return; // solo en su corte de origen
+        var a = imgToScreen(name, t, m.u1, m.v1), b = imgToScreen(name, t, m.u2, m.v2);
+        ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        [a, b].forEach(function(pt){
+          ctx.fillStyle = '#ffd166';
+          ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+        });
+        var label = m.mm.toFixed(1) + ' mm';
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 8;
+        var tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(0,0,0,.72)'; ctx.fillRect(mx - tw / 2 - 5, my - 11, tw + 10, 17);
+        ctx.fillStyle = '#ffd166'; ctx.textAlign = 'center'; ctx.fillText(label, mx, my + 2);
+      });
+      if (state.measurePending && state.measurePending.view === name){
+        var pp = imgToScreen(name, t, state.measurePending.u, state.measurePending.v);
+        ctx.fillStyle = '#ffd166';
+        ctx.beginPath(); ctx.arc(pp.x, pp.y, 3.5, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // ROI (confirmada o en curso)
+      var roi = (state.roiPending && state.roiPending.view === name) ? state.roiPending : (state.roi && state.roi.view === name ? state.roi : null);
+      if (roi && state.roi && roi === state.roi && roi.slice !== undefined && roi.slice !== state.pos[def.axis]) roi = null; // la ROI solo vive en su corte
+      if (roi){
+        var r1 = imgToScreen(name, t, Math.min(roi.u1, roi.u2), Math.min(roi.v1, roi.v2));
+        var r2 = imgToScreen(name, t, Math.max(roi.u1, roi.u2), Math.max(roi.v1, roi.v2));
+        ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 1.4;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(r1.x, r1.y, r2.x - r1.x, r2.y - r1.y);
+        ctx.setLineDash([]);
+        if (roi.mean !== undefined){
+          var txt = 'Media ' + roi.mean.toFixed(0) + ' HU';
+          ctx.font = '600 12px "IBM Plex Mono", monospace';
+          var w2 = ctx.measureText(txt).width;
+          ctx.fillStyle = 'rgba(0,0,0,.72)'; ctx.fillRect(r1.x, r1.y - 20, w2 + 10, 17);
+          ctx.fillStyle = '#4ade80'; ctx.textAlign = 'left'; ctx.fillText(txt, r1.x + 5, r1.y - 7);
+        }
+      }
+    }
+
+    function renderAll2D(){
+      ['axial', 'coronal', 'sagital'].forEach(function(name){
+        if (vpEls[name].section.offsetParent !== null || state.layout === 'quad') renderView(name);
+        else renderView(name);
+      });
+      syncPanel();
+    }
+
+    /* ============================================================
+       Paneles, controles e interacciones
+       ============================================================ */
+    var $ = function(id){ return document.getElementById(id); };
+    var rngWW = $('rngWW'), rngWL = $('rngWL'), rngX = $('rngX'), rngY = $('rngY'), rngZ = $('rngZ');
+
+    function tissueName(hu){
+      if (hu < -900) return 'Aire';
+      if (hu < -300) return 'Aire / pulmón';
+      if (hu < -30) return 'Grasa';
+      if (hu < 15) return 'Agua / LCR';
+      if (hu < 55) return 'Tejido blando';
+      if (hu < 120) return 'Sangre / contraste';
+      if (hu < 400) return 'Calcificación';
+      return 'Hueso';
+    }
+    function fmt(n, d){ return n.toFixed(d === undefined ? 1 : d); }
+
+    function syncPanel(){
+      rngWW.value = state.ww; rngWL.value = state.wl;
+      $('outWW').textContent = Math.round(state.ww);
+      $('outWL').textContent = Math.round(state.wl);
+      rngX.value = state.pos.x; rngY.value = state.pos.y; rngZ.value = state.pos.z;
+      $('outX').textContent = 'corte ' + (state.pos.x + 1) + ' · ' + fmt(state.pos.x * SPX, 0) + ' mm';
+      $('outY').textContent = 'corte ' + (state.pos.y + 1) + ' · ' + fmt(state.pos.y * SPY, 0) + ' mm';
+      $('outZ').textContent = 'corte ' + (state.pos.z + 1) + ' · ' + fmt(state.pos.z * SPZ, 0) + ' mm';
+      $('stPos').textContent = 'x ' + state.pos.x + ' · y ' + state.pos.y + ' · z ' + (state.pos.z + 1);
+      $('stWin').textContent = 'WW ' + Math.round(state.ww) + ' · WL ' + Math.round(state.wl);
+      $('stView').textContent = VIEW_NAMES[state.activeView];
+      $('stZoom').textContent = state.activeView === 'volume' ? '3D · arrastra para girar' :
+        'Zoom ' + Math.round((viewState[state.activeView] ? viewState[state.activeView].zoom : 1) * 100) + ' %';
+      updateReadout(state.pos.x, state.pos.y, state.pos.z);
+    }
+    function updateReadout(x, y, z){
+      var hu = huAt(x, y, z);
+      $('roHU').textContent = fmt(hu, 0);
+      $('roPos').textContent = 'x ' + fmt(x * SPX, 0) + ' · y ' + fmt(y * SPY, 0) + ' · z ' + fmt(z * SPZ, 0) + ' mm';
+      $('roTissue').textContent = tissueName(hu);
+    }
+
+    function setWindow(ww, wl, fromPreset){
+      state.ww = Math.max(1, Math.min(2400, ww));
+      state.wl = Math.max(-1000, Math.min(1200, wl));
+      if (!fromPreset){
+        document.querySelectorAll('#windowPresets .chip').forEach(function(c){ c.classList.remove('active'); });
+      }
+      renderAll2D();
+      if (window.__glDirty) window.__glDirty();
+    }
+    rngWW.addEventListener('input', function(){ setWindow(+rngWW.value, state.wl); });
+    rngWL.addEventListener('input', function(){ setWindow(state.ww, +rngWL.value); });
+    document.querySelectorAll('#windowPresets .chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        document.querySelectorAll('#windowPresets .chip').forEach(function(c){ c.classList.remove('active'); });
+        chip.classList.add('active');
+        setWindow(+chip.dataset.ww, +chip.dataset.wl, true);
+      });
+    });
+    rngX.addEventListener('input', function(){ state.pos.x = +rngX.value; renderAll2D(); if (window.__glDirty) window.__glDirty(); });
+    rngY.addEventListener('input', function(){ state.pos.y = +rngY.value; renderAll2D(); if (window.__glDirty) window.__glDirty(); });
+    rngZ.addEventListener('input', function(){ state.pos.z = +rngZ.value; renderAll2D(); if (window.__glDirty) window.__glDirty(); });
+
+    // Herramientas
+    document.querySelectorAll('#toolGroup .tbtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.querySelectorAll('#toolGroup .tbtn').forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        state.tool = btn.dataset.tool;
+        state.measurePending = null; state.roiPending = null;
+        renderAll2D();
+      });
+    });
+
+    function setActiveView(name){
+      state.activeView = name;
+      document.querySelectorAll('.vp').forEach(function(s){ s.classList.toggle('active', s.dataset.view === name); });
+      syncPanel();
+    }
+    function setLayout(name){
+      state.layout = name;
+      var grid = $('grid');
+      document.querySelectorAll('.lbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.layout === name); });
+      document.querySelectorAll('.vp').forEach(function(s){ s.classList.remove('expanded'); });
+      if (name === 'quad'){ grid.classList.remove('single'); }
+      else {
+        grid.classList.add('single');
+        var target = document.querySelector('.vp[data-view="' + name + '"]');
+        if (target) target.classList.add('expanded');
+        setActiveView(name);
+      }
+      requestAnimationFrame(function(){ renderAll2D(); if (window.__glDirty) window.__glDirty(); });
+    }
+    document.querySelectorAll('.lbtn').forEach(function(b){
+      b.addEventListener('click', function(){ setLayout(b.dataset.layout); });
+    });
+    document.querySelectorAll('[data-expand]').forEach(function(b){
+      b.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        var v = b.dataset.expand;
+        setLayout(state.layout === v ? 'quad' : v);
+      });
+    });
+
+    /* ---------- Gestos en las vistas 2D ---------- */
+    ['axial', 'coronal', 'sagital'].forEach(function(name){
+      var el = vpEls[name], body = el.body, def = VIEWS[name];
+      var gesture = null;
+
+      body.addEventListener('pointerdown', function(ev){
+        setActiveView(name);
+        if (!el._t) return;
+        body.setPointerCapture(ev.pointerId);
+        var rect = body.getBoundingClientRect();
+        var px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+        var img = screenToImg(name, el._t, px, py);
+        gesture = { tool: state.tool, startX: px, startY: py, imgU: img.u, imgV: img.v,
+                    startWW: state.ww, startWL: state.wl,
+                    startPanX: viewState[name].panX, startPanY: viewState[name].panY,
+                    startZoom: viewState[name].zoom, moved: false };
+        if (state.tool === 'measure'){
+          var u = Math.max(0, Math.min(def.w - 1, Math.round(img.u)));
+          var v = Math.max(0, Math.min(def.h - 1, Math.round(img.v)));
+          if (!state.measurePending){
+            state.measurePending = { view: name, u: u, v: v };
+          } else {
+            var p = state.measurePending, sp = def.spacing();
+            var mm = Math.sqrt(Math.pow((u - p.u) * sp.su, 2) + Math.pow((v - p.v) * sp.sv, 2));
+            measureSeq++;
+            state.measures.push({ id: measureSeq, view: name, slice: state.pos[def.axis], u1: p.u, v1: p.v, u2: u, v2: v, mm: mm });
+            state.measurePending = null;
+            renderMeasureList();
+          }
+          drawOverlay(name);
+        }
+        if (state.tool === 'roi'){
+          state.roiPending = { view: name, u1: img.u, v1: img.v, u2: img.u, v2: img.v };
+        }
+        if (state.tool === 'explore'){
+          def.setCross(clampRound(img.u, def.w), clampRound(img.v, def.h));
+          renderAll2D(); if (window.__glDirty) window.__glDirty();
+        }
+      });
+
+      body.addEventListener('pointermove', function(ev){
+        var rect = body.getBoundingClientRect();
+        var px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+        if (el._t){
+          var im = screenToImg(name, el._t, px, py);
+          var u = Math.round(im.u), v = Math.round(im.v);
+          if (u >= 0 && u < def.w && v >= 0 && v < def.h){
+            var pt = imgPointToVoxel(name, u, v);
+            updateReadout(pt.x, pt.y, pt.z);
+          }
+        }
+        if (!gesture) return;
+        var dx = px - gesture.startX, dy = py - gesture.startY;
+        if (Math.abs(dx) + Math.abs(dy) > 2) gesture.moved = true;
+        var img = el._t ? screenToImg(name, el._t, px, py) : { u: 0, v: 0 };
+        switch (gesture.tool){
+          case 'explore':
+            def.setCross(clampRound(img.u, def.w), clampRound(img.v, def.h));
+            renderAll2D(); if (window.__glDirty) window.__glDirty();
+            break;
+          case 'window':
+            setWindow(gesture.startWW + dx * 2, gesture.startWL - dy * 2);
+            break;
+          case 'pan':
+            viewState[name].panX = gesture.startPanX + dx;
+            viewState[name].panY = gesture.startPanY + dy;
+            renderView(name);
+            break;
+          case 'zoom':
+            viewState[name].zoom = Math.max(0.4, Math.min(6, gesture.startZoom * (1 - dy / 220)));
+            renderView(name); syncPanel();
+            break;
+          case 'roi':
+            if (state.roiPending){
+              state.roiPending.u2 = img.u; state.roiPending.v2 = img.v;
+              drawOverlay(name);
+            }
+            break;
+        }
+      });
+
+      function endGesture(){
+        if (gesture && gesture.tool === 'roi' && state.roiPending){
+          state.roi = computeRoi(name, state.roiPending);
+          state.roiPending = null;
+          renderRoiInfo();
+          renderAll2D();
+        }
+        gesture = null;
+      }
+      body.addEventListener('pointerup', endGesture);
+      body.addEventListener('pointercancel', endGesture);
+
+      body.addEventListener('wheel', function(ev){
+        ev.preventDefault();
+        setActiveView(name);
+        if (ev.ctrlKey || ev.metaKey){
+          var f = ev.deltaY < 0 ? 1.12 : 0.89;
+          viewState[name].zoom = Math.max(0.4, Math.min(6, viewState[name].zoom * f));
+          renderView(name); syncPanel();
+        } else {
+          var step = (ev.deltaY > 0 ? 1 : -1) * (ev.shiftKey ? 5 : 1);
+          state.pos[def.axis] = Math.max(0, Math.min(def.max, state.pos[def.axis] + step));
+          renderAll2D(); if (window.__glDirty) window.__glDirty();
+        }
+      }, { passive: false });
+
+      body.addEventListener('dblclick', function(){
+        setLayout(state.layout === name ? 'quad' : name);
+      });
+    });
+    function clampRound(val, size){ return Math.max(0, Math.min(size - 1, Math.round(val))); }
+    function imgPointToVoxel(name, u, v){
+      if (name === 'axial') return { x: u, y: v, z: state.pos.z };
+      if (name === 'coronal') return { x: u, y: state.pos.y, z: NZ - 1 - v };
+      return { x: state.pos.x, y: u, z: NZ - 1 - v };
+    }
+    function computeRoi(name, r){
+      var def = VIEWS[name];
+      var u1 = Math.max(0, Math.floor(Math.min(r.u1, r.u2))), u2 = Math.min(def.w - 1, Math.ceil(Math.max(r.u1, r.u2)));
+      var v1 = Math.max(0, Math.floor(Math.min(r.v1, r.v2))), v2 = Math.min(def.h - 1, Math.ceil(Math.max(r.v1, r.v2)));
+      var sum = 0, min = Infinity, max = -Infinity, count = 0;
+      for (var v = v1; v <= v2; v++) for (var u = u1; u <= u2; u++){
+        var hu = def.get(u, v); sum += hu; if (hu < min) min = hu; if (hu > max) max = hu; count++;
+      }
+      var sp = def.spacing();
+      return { view: name, slice: state.pos[def.axis], u1: u1, v1: v1, u2: u2, v2: v2,
+               mean: count ? sum / count : 0, min: min, max: max, count: count,
+               areaMm: count * sp.su * sp.sv };
+    }
+    function renderRoiInfo(){
+      var box = $('roiInfo');
+      if (!state.roi){ box.innerHTML = '<p class="empty-note">Sin ROI.</p>'; return; }
+      var r = state.roi;
+      box.innerHTML = '<div class="readout">' +
+        '<div><span class="k">Vista&nbsp;&nbsp;</span>' + VIEW_NAMES[r.view] + ' · corte ' + (r.slice + 1) + '</div>' +
+        '<div><span class="k">Media&nbsp;&nbsp;</span><b>' + fmt(r.mean, 1) + ' HU</b> · ' + tissueName(r.mean) + '</div>' +
+        '<div><span class="k">Mín / Máx&nbsp;&nbsp;</span>' + fmt(r.min, 0) + ' / ' + fmt(r.max, 0) + ' HU</div>' +
+        '<div><span class="k">Área&nbsp;&nbsp;</span>' + fmt(r.areaMm, 0) + ' mm² · ' + r.count + ' px</div></div>';
+    }
+    function renderMeasureList(){
+      var box = $('measureList');
+      if (!state.measures.length){
+        box.innerHTML = '<p class="empty-note">Sin mediciones todavía. Activa «Medir» y haz dos clics en cualquier vista 2D.</p>';
+        return;
+      }
+      box.innerHTML = '';
+      state.measures.forEach(function(m){
+        var div = document.createElement('div');
+        div.className = 'measure-item';
+        div.innerHTML = '<span class="dot" style="background:' + PLANE_COLORS[m.view] + '"></span>' +
+          '<span>M' + m.id + ' · ' + VIEW_NAMES[m.view] + (m.slice !== undefined ? ' · corte ' + (m.slice + 1) : '') + '</span>' +
+          '<span class="val">' + m.mm.toFixed(1) + ' mm</span>';
+        var del = document.createElement('button');
+        del.textContent = '×'; del.title = 'Eliminar medición ' + m.id;
+        del.addEventListener('click', function(){
+          state.measures = state.measures.filter(function(x){ return x.id !== m.id; });
+          renderMeasureList(); renderAll2D();
+        });
+        div.appendChild(del);
+        box.appendChild(div);
+      });
+    }
+    $('btnClearMeasures').addEventListener('click', function(){
+      state.measures = []; state.measurePending = null;
+      renderMeasureList(); renderAll2D();
+    });
+
+    // Cine
+    var cineTimer = null;
+    $('btnCine').addEventListener('click', function(){
+      var btn = $('btnCine');
+      if (cineTimer){
+        clearInterval(cineTimer); cineTimer = null;
+        btn.classList.remove('toggle-on');
+        return;
+      }
+      btn.classList.add('toggle-on');
+      if (state.activeView === 'volume' && window.__glRotateStep){
+        // Con la vista 3D activa, el cine gira la cámara del volumen
+        cineTimer = setInterval(function(){ window.__glRotateStep(); }, 50);
+        return;
+      }
+      var viewName = state.activeView;
+      var def = VIEWS[viewName];
+      cineTimer = setInterval(function(){
+        state.pos[def.axis] = (state.pos[def.axis] + 1) % (def.max + 1);
+        renderAll2D(); if (window.__glDirty) window.__glDirty();
+      }, 90);
+    });
+
+    // Invertir, reiniciar, descargar PNG
+    $('btnInvert').addEventListener('click', function(){
+      state.invert = !state.invert;
+      $('btnInvert').classList.toggle('toggle-on', state.invert);
+      renderAll2D();
+    });
+    $('btnReset').addEventListener('click', function(){
+      state.pos = { x: 64, y: 64, z: 48 };
+      state.invert = false; $('btnInvert').classList.remove('toggle-on');
+      ['axial', 'coronal', 'sagital'].forEach(function(n){ viewState[n] = { zoom: 1, panX: 0, panY: 0 }; });
+      setWindow(80, 40, true);
+      document.querySelectorAll('#windowPresets .chip').forEach(function(c, i){ c.classList.toggle('active', i === 0); });
+      if (window.__glReset) window.__glReset();
+    });
+    $('btnDownload').addEventListener('click', function(){
+      var a = document.createElement('a');
+      if (state.activeView === 'volume' && window.__glCapturePNG){
+        a.download = 'visor-reconstruccion-3d.png';
+        a.href = window.__glCapturePNG(); // dibuja el volumen justo antes de capturar
+      } else {
+        var name = state.activeView === 'volume' ? 'axial' : state.activeView;
+        a.download = 'visor-' + name + '-corte.png';
+        a.href = vpEls[name].canvas.toDataURL('image/png');
+      }
+      a.click();
+    });
+
+    // Teclado
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape'){ setLayout('quad'); return; }
+      if (state.activeView === 'volume') return;
+      var def = VIEWS[state.activeView];
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight'){
+        state.pos[def.axis] = Math.min(def.max, state.pos[def.axis] + 1);
+        renderAll2D(); if (window.__glDirty) window.__glDirty(); ev.preventDefault();
+      }
+      if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft'){
+        state.pos[def.axis] = Math.max(0, state.pos[def.axis] - 1);
+        renderAll2D(); if (window.__glDirty) window.__glDirty(); ev.preventDefault();
+      }
+    });
+
+    window.addEventListener('resize', function(){ renderAll2D(); if (window.__glDirty) window.__glDirty(); });
+
+    /* ============================================================
+       Reconstrucción 3D — renderizado volumétrico por GPU (WebGL2)
+       Ray marching sobre textura 3D con los datos HU del fantoma.
+       Modos: 0 = VR (volumen), 1 = MIP, 2 = Hueso (umbral alto)
+       ============================================================ */
+    (function initGL(){
+      var canvas = $('glCanvas');
+      var gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+      if (!gl){
+        $('glFallback').style.display = 'grid';
+        canvas.style.display = 'none';
+        return;
+      }
+      var VS = '#version 300 es\n' +
+        'layout(location=0) in vec3 aPos;\n' +
+        'uniform mat4 uMVP;\n' +
+        'out vec3 vPos;\n' +
+        'void main(){ vPos = aPos; gl_Position = uMVP * vec4(aPos, 1.0); }\n';
+      var FS = '#version 300 es\n' +
+        'precision highp float;\n' +
+        'precision highp sampler3D;\n' +
+        'uniform sampler3D uVol;\n' +
+        'uniform vec3 uCamPos;\n' +
+        'uniform vec3 uBoxMin, uBoxMax;\n' +
+        'uniform float uThreshold, uOpacity, uLow, uHigh;\n' +
+        'uniform int uMode;\n' +
+        'uniform vec3 uCursor;\n' +
+        'in vec3 vPos;\n' +
+        'out vec4 fragColor;\n' +
+        'void main(){\n' +
+        '  vec3 ro = uCamPos;\n' +
+        '  vec3 rd = normalize(vPos - ro);\n' +
+        '  vec3 t0 = (uBoxMin - ro) / rd;\n' +
+        '  vec3 t1 = (uBoxMax - ro) / rd;\n' +
+        '  vec3 tmin = min(t0, t1), tmax = max(t0, t1);\n' +
+        '  float tn = max(max(tmin.x, tmin.y), tmin.z);\n' +
+        '  float tf = min(min(tmax.x, tmax.y), tmax.z);\n' +
+        '  tn = max(tn, 0.0);\n' +
+        '  if (tf <= tn) { fragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }\n' +
+        '  float steps = 100.0;\n' +
+        '  float dt = (tf - tn) / steps;\n' +
+        '  vec4 acc = vec4(0.0);\n' +
+        '  float maxv = 0.0;\n' +
+        '  vec3 span = uBoxMax - uBoxMin;\n' +
+        '  for (float t = tn; t < tf; t += dt){\n' +
+        '    vec3 p = (ro + rd * t - uBoxMin) / span;\n' +
+        '    float v = texture(uVol, p).r;\n' +
+        '    if (uMode == 1) { maxv = max(maxv, v); }\n' +
+        '    else {\n' +
+        '      float thr = (uMode == 2) ? max(uThreshold, 0.52) : uThreshold;\n' +
+        '      float a = smoothstep(thr, thr + 0.16, v);\n' +
+        '      vec3 col = mix(vec3(0.30,0.24,0.25), vec3(0.62,0.46,0.42), smoothstep(0.30, 0.46, v));\n' +
+        '      col = mix(col, vec3(0.97,0.94,0.88), smoothstep(0.52, 0.74, v));\n' +
+        '      vec3 pd3 = abs(p - uCursor);\n' +
+        '      float dp = min(pd3.x, min(pd3.y, pd3.z));\n' +
+        '      if (dp < 0.006 && v > thr) {\n' +
+        '        vec3 pc = (pd3.z <= pd3.x && pd3.z <= pd3.y) ? vec3(0.94,0.35,0.62) : ((pd3.y <= pd3.x) ? vec3(0.24,0.78,0.88) : vec3(0.65,0.85,0.31));\n' +
+        '        col = mix(col, pc, 0.55);\n' +
+        '        a = max(a, 0.30);\n' +
+        '      }\n' +
+        '      float alpha = a * uOpacity * dt * 2.6;\n' +
+        '      acc.rgb += (1.0 - acc.a) * alpha * col;\n' +
+        '      acc.a += (1.0 - acc.a) * alpha;\n' +
+        '      if (acc.a > 0.985) break;\n' +
+        '    }\n' +
+        '  }\n' +
+        '  if (uMode == 1) {\n' +
+        '    float g = clamp((maxv - uLow) / max(uHigh - uLow, 0.001), 0.0, 1.0);\n' +
+        '    fragColor = vec4(vec3(g), 1.0);\n' +
+        '  } else {\n' +
+        '    fragColor = vec4(acc.rgb, 1.0);\n' +
+        '  }\n' +
+        '}\n';
+
+      function compile(type, src){
+        var sh = gl.createShader(type);
+        gl.shaderSource(sh, src); gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+          console.warn('Shader:', gl.getShaderInfoLog(sh));
+          return null;
+        }
+        return sh;
+      }
+      var prog = gl.createProgram();
+      var vs = compile(gl.VERTEX_SHADER, VS), fs = compile(gl.FRAGMENT_SHADER, FS);
+      if (!vs || !fs){ $('glFallback').style.display = 'grid'; return; }
+      gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      gl.useProgram(prog);
+
+      // Cubo del volumen (x: 1.0, y: 1.0, z: proporción real del voxelado)
+      var vbo = gl.createBuffer();
+      gl.enableVertexAttribArray(0);
+      function buildGeometry(){
+        var zScale = (NZ * SPZ) / (NX * SPX);
+        var hx = 0.5, hy = 0.5, hz = 0.5 * zScale;
+        var verts = new Float32Array([
+          -hx,-hy,-hz,  hx,-hy,-hz,  hx, hy,-hz,  -hx,-hy,-hz,  hx, hy,-hz,  -hx, hy,-hz,
+          -hx,-hy, hz,  hx, hy, hz,  hx,-hy, hz,  -hx,-hy, hz,  -hx, hy, hz,  hx, hy, hz,
+          -hx,-hy,-hz,  -hx, hy,-hz,  -hx, hy, hz,  -hx,-hy,-hz,  -hx, hy, hz,  -hx,-hy,-hz,
+           hx,-hy,-hz,   hx, hy, hz,   hx, hy,-hz,   hx,-hy,-hz,   hx,-hy, hz,   hx, hy, hz,
+          -hx,-hy,-hz,  -hx,-hy, hz,   hx,-hy, hz,  -hx,-hy,-hz,   hx,-hy, hz,   hx,-hy,-hz,
+          -hx, hy,-hz,   hx, hy,-hz,   hx, hy, hz,  -hx, hy,-hz,   hx, hy, hz,  -hx, hy, hz
+        ]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+        gl.uniform3f(gl.getUniformLocation(prog, 'uBoxMin'), -hx, -hy, -hz);
+        gl.uniform3f(gl.getUniformLocation(prog, 'uBoxMax'), hx, hy, hz);
+      }
+      buildGeometry();
+
+      // Textura 3D con el volumen (HU → byte)
+      var tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      function uploadVolume(){
+        var texData = new Uint8Array(NX * NY * NZ);
+        for (var i = 0; i < volume.length; i++){
+          var b = ((volume[i] - HU_MIN) / HU_RANGE) * 255;
+          texData[i] = b < 0 ? 0 : (b > 255 ? 255 : b);
+        }
+        gl.bindTexture(gl.TEXTURE_3D, tex);
+        gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+        gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, NX, NY, NZ, 0, gl.RED, gl.UNSIGNED_BYTE, texData);
+      }
+      uploadVolume();
+      gl.uniform1i(gl.getUniformLocation(prog, 'uVol'), 0);
+
+      var uMVP = gl.getUniformLocation(prog, 'uMVP');
+      var uCam = gl.getUniformLocation(prog, 'uCamPos');
+      var uThr = gl.getUniformLocation(prog, 'uThreshold');
+      var uOp = gl.getUniformLocation(prog, 'uOpacity');
+      var uLow = gl.getUniformLocation(prog, 'uLow');
+      var uHigh = gl.getUniformLocation(prog, 'uHigh');
+      var uMode = gl.getUniformLocation(prog, 'uMode');
+      var uCur = gl.getUniformLocation(prog, 'uCursor');
+
+      var yaw = 0.6, pitch = 0.35, dist = 2.35;
+      var glMode = 0, thresholdHU = -200, opacity = 0.85;
+      var spinning = false, glNeedsRender = true;
+
+      // Matrices mínimas (columna mayor, como WebGL)
+      function matMul(a, b){
+        var o = new Float32Array(16);
+        for (var c = 0; c < 4; c++) for (var r = 0; r < 4; r++){
+          o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+        }
+        return o;
+      }
+      function matPerspective(fovy, aspect, near, far){
+        var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+        return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+      }
+      function rotX(a){ var c = Math.cos(a), s = Math.sin(a); return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]); }
+      function rotY(a){ var c = Math.cos(a), s = Math.sin(a); return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]); }
+
+      function drawGL(){
+        var body = canvas.parentElement;
+        var r = body.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4) return;
+        // Resolución interna limitada: el ray marching se dibuja a un máximo
+        // de ~560 px en el lado mayor y CSS lo escala (fluido también sin GPU).
+        var dpr = Math.min(1.5, window.devicePixelRatio || 1);
+        var fit = Math.min(1, 560 / Math.max(r.width, r.height));
+        var w = Math.max(2, Math.round(r.width * dpr * fit)), h = Math.max(2, Math.round(r.height * dpr * fit));
+        if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+        gl.viewport(0, 0, w, h);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        var model = matMul(rotY(yaw), rotX(pitch));
+        var proj = matPerspective(0.72, w / h, 0.1, 10);
+        var view = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-dist,1]);
+        var mvp = matMul(proj, matMul(view, model));
+        gl.uniformMatrix4fv(uMVP, false, mvp);
+
+        // Cámara en espacio del objeto: inversa de la rotación (traspuesta) aplicada a (0,0,dist)
+        var camObj = [
+          model[2] * 0 + model[6] * 0 + model[10] * dist,
+          model[1] * 0 + model[5] * 0 + model[9] * dist,
+          model[0] * 0 + model[4] * 0 + model[8] * dist
+        ];
+        // Traspuesta correcta: camObj_i = sum_j R[j][i] * cam_j, cam = (0,0,dist)
+        camObj = [model[8] * dist * 0 + model[2] * dist, model[6] * dist, model[10] * dist];
+        // (equivalente: fila 3 de R multiplicada por dist en cada componente)
+        camObj = [model[2] * dist, model[6] * dist, model[10] * dist];
+        gl.uniform3f(uCam, camObj[0], camObj[1], camObj[2]);
+
+        gl.uniform1f(uThr, (thresholdHU - HU_MIN) / HU_RANGE);
+        gl.uniform1f(uOp, opacity);
+        var lowN = (state.wl - state.ww / 2 - HU_MIN) / HU_RANGE;
+        var highN = (state.wl + state.ww / 2 - HU_MIN) / HU_RANGE;
+        gl.uniform1f(uLow, lowN);
+        gl.uniform1f(uHigh, highN);
+        gl.uniform1i(uMode, glMode);
+        // Planos del cursor MPR sincronizado, en coordenadas de textura (0..1)
+        gl.uniform3f(uCur, (state.pos.x + 0.5) / NX, (state.pos.y + 0.5) / NY, (state.pos.z + 0.5) / NZ);
+        gl.drawArrays(gl.TRIANGLES, 0, 36);
+      }
+
+      function loop(){
+        if (spinning){ yaw += 0.008; drawGL(); }
+        else if (glNeedsRender){ drawGL(); glNeedsRender = false; }
+        requestAnimationFrame(loop);
+      }
+      window.__glDirty = function(){ glNeedsRender = true; };
+      window.__glReset = function(){ yaw = 0.6; pitch = 0.35; dist = 2.35; glNeedsRender = true; };
+      window.__glLoadVolume = function(){ buildGeometry(); uploadVolume(); glNeedsRender = true; };
+      window.__glCapturePNG = function(){ drawGL(); return canvas.toDataURL('image/png'); };
+      window.__glRotateStep = function(){ yaw += 0.06; glNeedsRender = true; };
+      requestAnimationFrame(loop);
+
+      // Interacción 3D: girar / zoom
+      var dragging = null;
+      var body3d = document.querySelector('[data-body="volume"]');
+      body3d.addEventListener('pointerdown', function(ev){
+        setActiveView('volume');
+        dragging = { x: ev.clientX, y: ev.clientY };
+        body3d.setPointerCapture(ev.pointerId);
+        body3d.style.cursor = 'grabbing';
+      });
+      body3d.addEventListener('pointermove', function(ev){
+        if (!dragging) return;
+        yaw += (ev.clientX - dragging.x) * 0.008;
+        pitch += (ev.clientY - dragging.y) * 0.008;
+        pitch = Math.max(-1.45, Math.min(1.45, pitch));
+        dragging = { x: ev.clientX, y: ev.clientY };
+        glNeedsRender = true;
+      });
+      function endDrag(){ dragging = null; body3d.style.cursor = 'grab'; }
+      body3d.addEventListener('pointerup', endDrag);
+      body3d.addEventListener('pointercancel', endDrag);
+      body3d.addEventListener('wheel', function(ev){
+        ev.preventDefault();
+        dist = Math.max(1.5, Math.min(4.2, dist * (ev.deltaY > 0 ? 1.09 : 0.92)));
+        glNeedsRender = true;
+      }, { passive: false });
+      body3d.addEventListener('dblclick', function(){ setLayout(state.layout === 'volume' ? 'quad' : 'volume'); });
+
+      // Controles del panel 3D
+      document.querySelectorAll('#glModes .chip').forEach(function(chip){
+        chip.addEventListener('click', function(){
+          document.querySelectorAll('#glModes .chip').forEach(function(c){ c.classList.remove('active'); });
+          chip.classList.add('active');
+          glMode = +chip.dataset.glmode;
+          $('glModeLabel').textContent = chip.textContent.replace(/\s+/g, ' ').trim();
+          glNeedsRender = true;
+        });
+      });
+      $('rngThr').addEventListener('input', function(){
+        thresholdHU = +$('rngThr').value;
+        $('outThr').textContent = thresholdHU + ' HU';
+        glNeedsRender = true;
+      });
+      $('rngOp').addEventListener('input', function(){
+        opacity = +$('rngOp').value / 100;
+        $('outOp').textContent = $('rngOp').value + ' %';
+        glNeedsRender = true;
+      });
+      $('btnSpin').addEventListener('click', function(){
+        spinning = !spinning;
+        $('btnSpin').classList.toggle('primary', spinning);
+      });
+      $('btnGlReset').addEventListener('click', function(){ window.__glReset(); });
+    })();
+
+    /* ============================================================
+       Carga de estudios DICOM locales
+       Parser DICOM propio (sin librerías): cabecera, metadatos,
+       Pixel Data sin comprimir (LE/BE, VR explícita o implícita),
+       reescalado a HU con pendiente/intercepto y ordenación de
+       cortes por posición del paciente (IPP) o nº de instancia.
+       Todo el procesamiento ocurre en el navegador del usuario.
+       ============================================================ */
+    function dicomFail(msg){ var e = new Error(msg); e.isDicom = true; return e; }
+    function dcmAscii(dv, off, len){
+      var s = '';
+      for (var i = 0; i < len; i++){
+        var c = dv.getUint8(off + i);
+        if (c === 0) break;
+        s += String.fromCharCode(c);
+      }
+      return s.replace(/[\s\0]+$/, '');
+    }
+    function dcmDS(str){ if (!str) return null; var v = parseFloat(str.split('\\')[0]); return isNaN(v) ? null : v; }
+    function dcmDSAll(str){
+      if (!str) return [];
+      return str.split('\\').map(function(t){ return parseFloat(t); }).filter(function(n){ return !isNaN(n); });
+    }
+
+    function parseDicom(buf){
+      var dv = new DataView(buf);
+      if (buf.byteLength < 200) throw dicomFail('archivo demasiado pequeño');
+      if (dcmAscii(dv, 128, 4) !== 'DICM') throw dicomFail('sin cabecera DICM (no es un archivo DICOM)');
+      var tags = {};
+      var transferSyntax = '1.2.840.10008.1.2.1';
+      var pos = 132, little = true, explicit = true, inMeta = true;
+      var pixel = null, guard = 0;
+      while (pos + 8 <= buf.byteLength && guard++ < 100000){
+        var g = dv.getUint16(pos, little), el = dv.getUint16(pos + 2, little);
+        if (inMeta && g !== 0x0002){
+          inMeta = false;
+          var ts = transferSyntax.replace(/[^0-9.].*$/, '');
+          if (ts.indexOf('1.2.840.10008.1.2.4') === 0 || ts.indexOf('1.2.840.10008.1.2.6') === 0 || ts === '1.2.840.10008.1.2.5')
+            throw dicomFail('transfer syntax comprimida (' + ts + ') no soportada en este prototipo');
+          if (ts === '1.2.840.10008.1.2'){ explicit = false; little = true; }
+          else if (ts === '1.2.840.10008.1.2.2'){ explicit = true; little = false; }
+          else { explicit = true; little = true; }
+        }
+        var vr = '', len = 0, hdr = 8;
+        if (explicit){
+          vr = dcmAscii(dv, pos + 4, 2);
+          if (['OB', 'OW', 'OF', 'SQ', 'UC', 'UR', 'UT', 'UN'].indexOf(vr) >= 0){ len = dv.getUint32(pos + 8, little); hdr = 12; }
+          else { len = dv.getUint16(pos + 6, little); hdr = 8; }
+        } else { len = dv.getUint32(pos + 4, little); hdr = 8; }
+        var valOff = pos + hdr;
+        if (g === 0x7FE0 && el === 0x0010){
+          if (len === 0xFFFFFFFF) throw dicomFail('Pixel Data encapsulado (comprimido) no soportado');
+          pixel = { off: valOff, len: len };
+          break;
+        }
+        if (len === 0xFFFFFFFF) throw dicomFail('elemento de longitud indefinida no soportado');
+        if (valOff + len > buf.byteLength) break;
+        if (len <= 512) tags[g + ',' + el] = { off: valOff, len: len };
+        if (g === 0x0002 && el === 0x0010) transferSyntax = dcmAscii(dv, valOff, len);
+        pos = valOff + len;
+      }
+      if (!pixel) throw dicomFail('sin Pixel Data legible');
+      function tStr(g, el){ var t = tags[g + ',' + el]; return t ? dcmAscii(dv, t.off, t.len) : ''; }
+      function tUS(g, el){
+        var t = tags[g + ',' + el];
+        if (!t || t.len < 2) return null;
+        return little ? (dv.getUint8(t.off) | (dv.getUint8(t.off + 1) << 8)) : ((dv.getUint8(t.off) << 8) | dv.getUint8(t.off + 1));
+      }
+      var rows = tUS(0x0028, 0x0010), cols = tUS(0x0028, 0x0011);
+      if (!rows || !cols) throw dicomFail('faltan Rows/Columns');
+      var samples = tUS(0x0028, 0x0002) || 1;
+      if (samples !== 1) throw dicomFail('imágenes en color (SamplesPerPixel=' + samples + ') no soportadas');
+      var bitsAlloc = tUS(0x0028, 0x0100) || 16;
+      var pixRep = tUS(0x0028, 0x0103) || 0;
+      var slope = dcmDS(tStr(0x0028, 0x1053)); if (slope === null) slope = 1;
+      var intercept = dcmDS(tStr(0x0028, 0x1052)); if (intercept === null) intercept = 0;
+      var frames = parseInt(tStr(0x0028, 0x0008), 10) || 1;
+      var bpp = bitsAlloc > 8 ? 2 : 1;
+      var framePx = rows * cols, frameBytes = framePx * bpp;
+      if (pixel.len < frameBytes) throw dicomFail('Pixel Data incompleto');
+      frames = Math.min(frames, Math.floor(pixel.len / frameBytes));
+      var data = new Float32Array(framePx * frames);
+      for (var f = 0; f < frames; f++){
+        var base = pixel.off + f * frameBytes, dst = f * framePx, i, raw;
+        if (bpp === 2 && little && base % 2 === 0){
+          var view = pixRep === 1 ? new Int16Array(buf, base, framePx) : new Uint16Array(buf, base, framePx);
+          for (i = 0; i < framePx; i++) data[dst + i] = view[i] * slope + intercept;
+        } else if (bpp === 2){
+          for (i = 0; i < framePx; i++){
+            raw = little ? dv.getUint16(base + i * 2, true) : dv.getUint16(base + i * 2, false);
+            if (pixRep === 1 && raw >= 32768) raw -= 65536;
+            data[dst + i] = raw * slope + intercept;
+          }
+        } else {
+          for (i = 0; i < framePx; i++){
+            raw = dv.getUint8(base + i);
+            if (pixRep === 1 && raw >= 128) raw -= 256;
+            data[dst + i] = raw * slope + intercept;
+          }
+        }
+      }
+      return {
+        rows: rows, cols: cols, frames: frames, data: data,
+        ipp: dcmDSAll(tStr(0x0020, 0x0032)),
+        iop: dcmDSAll(tStr(0x0020, 0x0037)),
+        instance: parseInt(tStr(0x0020, 0x0013), 10),
+        pixelSpacing: dcmDSAll(tStr(0x0028, 0x0030)),
+        sliceThickness: dcmDS(tStr(0x0018, 0x0050)),
+        spacingBetween: dcmDS(tStr(0x0018, 0x0088)),
+        modality: tStr(0x0008, 0x0060) || 'CT',
+        patient: tStr(0x0010, 0x0010).replace(/\^/g, ' ').trim(),
+        studyDesc: tStr(0x0008, 0x1030),
+        seriesDesc: tStr(0x0008, 0x103E)
+      };
+    }
+
+    function setLoadStatus(html){ $('loadStatus').innerHTML = html; }
+
+    function applyVolumeToUI(meta){
+      VIEWS.axial.w = NX; VIEWS.axial.h = NY; VIEWS.axial.max = NZ - 1;
+      VIEWS.coronal.w = NX; VIEWS.coronal.h = NZ; VIEWS.coronal.max = NY - 1;
+      VIEWS.sagital.w = NY; VIEWS.sagital.h = NZ; VIEWS.sagital.max = NX - 1;
+      ['axial', 'coronal', 'sagital'].forEach(function(n){
+        vpEls[n].off.width = VIEWS[n].w;
+        vpEls[n].off.height = VIEWS[n].h;
+        viewState[n] = { zoom: 1, panX: 0, panY: 0 };
+      });
+      rngX.max = NX - 1; rngY.max = NY - 1; rngZ.max = NZ - 1;
+      state.pos = { x: NX >> 1, y: NY >> 1, z: NZ >> 1 };
+      state.measures = []; state.measurePending = null;
+      state.roi = null; state.roiPending = null;
+      renderMeasureList(); renderRoiInfo();
+      $('stPatient').textContent = meta.patient || '—';
+      $('stStudy').textContent = meta.study || '—';
+      $('stSeries').textContent = meta.series || '—';
+      $('stSlices').textContent = NZ;
+      $('stMatrix').textContent = NX + ' × ' + NY;
+      $('stVoxel').textContent = SPX.toFixed(2).replace('.', ',') + ' × ' + SPY.toFixed(2).replace('.', ',') + ' × ' + SPZ.toFixed(2).replace('.', ',') + ' mm';
+      $('stModality').textContent = meta.modality || 'CT';
+      renderAll2D();
+      if (window.__glLoadVolume) window.__glLoadVolume();
+    }
+
+    function finishDicomLoad(parsed, errors, fileCount){
+      var usable = parsed.filter(function(s){ return s && s.rows; });
+      if (!usable.length){
+        setLoadStatus('<strong style="color:var(--accent)">No se pudo cargar ningún corte.</strong><br>' +
+          (errors.slice(0, 3).join('<br>') || 'Sin detalles.'));
+        return;
+      }
+      var rows = usable[0].rows, cols = usable[0].cols;
+      // Expandir archivos multi-frame a cortes individuales
+      var slices = [];
+      usable.forEach(function(s){
+        if (s.cols !== cols || s.rows !== rows) { errors.push('corte descartado: matriz distinta (' + s.cols + '×' + s.rows + ')'); return; }
+        for (var f = 0; f < s.frames; f++){
+          slices.push({
+            data: s.data.subarray(f * rows * cols, (f + 1) * rows * cols),
+            ipp: s.ipp, instance: isNaN(s.instance) ? null : s.instance, frame: f, src: s
+          });
+        }
+      });
+      if (!slices.length){ setLoadStatus('Ningún corte con la matriz de la serie.'); return; }
+      if (slices.length * rows * cols > 110000000){
+        setLoadStatus('<strong style="color:var(--accent)">Serie demasiado grande</strong> para este prototipo (>' + '110 M de vóxeles).');
+        return;
+      }
+      // Ordenar: posición del paciente proyectada en la normal del plano
+      var first = usable[0];
+      var iop = (first.iop && first.iop.length === 6) ? first.iop : [1, 0, 0, 0, 1, 0];
+      var normal = [
+        iop[1] * iop[5] - iop[2] * iop[4],
+        iop[2] * iop[3] - iop[0] * iop[5],
+        iop[0] * iop[4] - iop[1] * iop[3]
+      ];
+      function proj(s){ return (s.ipp && s.ipp.length === 3) ? s.ipp[0] * normal[0] + s.ipp[1] * normal[1] + s.ipp[2] * normal[2] : null; }
+      var withPos = slices.filter(function(s){ return proj(s) !== null; });
+      if (withPos.length === slices.length && slices.length > 1){
+        slices.sort(function(a, b){ return proj(a) - proj(b); });
+      } else if (slices.every(function(s){ return s.instance !== null; }) && slices.length > 1){
+        slices.sort(function(a, b){ return a.instance - b.instance; });
+      }
+      // Espaciado
+      var ps = (first.pixelSpacing && first.pixelSpacing.length === 2) ? first.pixelSpacing : [1, 1];
+      SPX = ps[1]; SPY = ps[0];
+      var p0 = proj(slices[0]), p1 = slices.length > 1 ? proj(slices[slices.length - 1]) : null;
+      if (p0 !== null && p1 !== null && slices.length > 1) SPZ = Math.abs(p1 - p0) / (slices.length - 1);
+      else SPZ = first.spacingBetween || first.sliceThickness || SPY;
+      if (!(SPZ > 0)) SPZ = SPY;
+      NX = cols; NY = rows; NZ = slices.length;
+      volume = new Float32Array(NX * NY * NZ);
+      slices.forEach(function(s, zi){ volume.set(s.data, zi * NX * NY); });
+      applyVolumeToUI({
+        patient: first.patient || 'Sin nombre en el archivo',
+        study: first.studyDesc || (first.modality + ' · estudio local'),
+        series: first.seriesDesc || 'Serie DICOM local',
+        modality: first.modality
+      });
+      $('studyNote').innerHTML = '<strong>Estudio local cargado:</strong> ' + fileCount + ' archivo(s), ' + NZ +
+        ' corte(s). Los datos se procesan solo en este navegador y no salen de tu dispositivo.';
+      $('btnPhantom').style.display = '';
+      if (first.modality === 'CT') setWindow(80, 40, true);
+      else {
+        var mn = Infinity, mx = -Infinity;
+        for (var i = 0; i < volume.length; i += 7){ if (volume[i] < mn) mn = volume[i]; if (volume[i] > mx) mx = volume[i]; }
+        setWindow(Math.max(1, mx - mn), (mx + mn) / 2);
+      }
+      setLoadStatus('Serie cargada: <strong>' + NZ + ' cortes</strong>, ' + NX + ' × ' + NY +
+        ', voxel ' + SPX.toFixed(2) + ' × ' + SPY.toFixed(2) + ' × ' + SPZ.toFixed(2) + ' mm.' +
+        (errors.length ? '<br>' + errors.length + ' archivo(s) con aviso: ' + errors.slice(0, 2).join(' · ') : ''));
+    }
+
+    function loadDicomFiles(fileList){
+      var files = Array.prototype.slice.call(fileList || []);
+      if (!files.length) return;
+      setLoadStatus('Leyendo ' + files.length + ' archivo(s)…');
+      var parsed = [], errors = [];
+      var chain = Promise.resolve();
+      files.forEach(function(file){
+        chain = chain.then(function(){
+          return file.arrayBuffer().then(function(buf){
+            try { parsed.push(parseDicom(buf)); }
+            catch (e){ errors.push(file.name + ': ' + e.message); }
+          }, function(){ errors.push(file.name + ': no se pudo leer'); });
+        });
+      });
+      chain.then(function(){ finishDicomLoad(parsed, errors, files.length); });
+    }
+
+    $('btnLoadFiles').addEventListener('click', function(){ $('fileDicom').click(); });
+    $('btnLoadFolder').addEventListener('click', function(){ $('fileFolder').click(); });
+    $('fileDicom').addEventListener('change', function(){ loadDicomFiles(this.files); this.value = ''; });
+    $('fileFolder').addEventListener('change', function(){ loadDicomFiles(this.files); this.value = ''; });
+    $('btnPhantom').addEventListener('click', function(){
+      NX = 128; NY = 128; NZ = 96; SPX = 1.8; SPY = 1.8; SPZ = 2.0;
+      volume = new Float32Array(NX * NY * NZ);
+      generateVolume();
+      applyVolumeToUI({ patient: 'Fantoma de demostración', study: 'TC de cráneo', series: 'Axial 2,0 mm', modality: 'CT' });
+      $('studyNote').innerHTML = '<strong>Datos sintéticos:</strong> este volumen se genera matemáticamente en tu navegador para probar el visor. No es un paciente real ni sirve para diagnóstico.';
+      $('btnPhantom').style.display = 'none';
+      setWindow(80, 40, true);
+      setLoadStatus('Fantoma de demostración restaurado.');
+    });
+    var gridEl = $('grid');
+    gridEl.addEventListener('dragover', function(ev){ ev.preventDefault(); });
+    gridEl.addEventListener('drop', function(ev){
+      ev.preventDefault();
+      if (ev.dataTransfer && ev.dataTransfer.files) loadDicomFiles(ev.dataTransfer.files);
+    });
+
+    /* ============================================================
+       Arranque
+       ============================================================ */
+    renderAll2D();
+    renderMeasureList();
+    if (window.__glDirty) window.__glDirty();
+    setTimeout(function(){ $('loading').classList.add('done'); }, 250);
+    setTimeout(function(){
+      renderAll2D();
+      if (window.__glDirty) window.__glDirty();
+    }, 600);
+    </script>
+  </body>
+</html>
