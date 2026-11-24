@@ -8,6 +8,7 @@ import type {
 } from '../types/dicom';
 import {
   buildTransferTextureData,
+  TRANSFER_LUT_SIZE,
   VOLUME_HU_MIN,
   VOLUME_HU_RANGE
 } from '../utils/colormaps';
@@ -59,6 +60,7 @@ uniform float uThreshold;
 uniform float uOpacity;
 uniform float uShading;
 uniform float uBrightness;
+uniform float uEdgeBoost;
 uniform float uLow;
 uniform float uHigh;
 uniform float uSteps;
@@ -69,15 +71,18 @@ uniform int uShowClipBox;
 in vec3 vPos;
 out vec4 fragColor;
 
-vec3 estimateGradient(vec3 p) {
+vec4 estimateGradient(vec3 p) {
   vec3 e = 1.0 / uVolDims;
   float gx = texture(uVol, p + vec3(e.x, 0.0, 0.0)).r - texture(uVol, p - vec3(e.x, 0.0, 0.0)).r;
   float gy = texture(uVol, p + vec3(0.0, e.y, 0.0)).r - texture(uVol, p - vec3(0.0, e.y, 0.0)).r;
   float gz = texture(uVol, p + vec3(0.0, 0.0, e.z)).r - texture(uVol, p - vec3(0.0, 0.0, e.z)).r;
-  vec3 g = vec3(gx, gy, gz) / max(uVoxelSpacing, vec3(0.01));
+  vec3 raw = vec3(gx, gy, gz);
+  float rawMag = length(raw);
+  vec3 g = raw / max(uVoxelSpacing, vec3(0.01));
   vec3 worldG = vec3(g.x, g.z, -g.y);
   float len = length(worldG);
-  return len > 0.0001 ? worldG / len : vec3(0.0, 0.0, 1.0);
+  vec3 n = len > 0.0001 ? worldG / len : vec3(0.0, 0.0, 1.0);
+  return vec4(n, rawMag);
 }
 
 vec3 shadeBlinnPhong(vec3 baseCol, vec3 normal, vec3 viewDir) {
@@ -89,12 +94,12 @@ vec3 shadeBlinnPhong(vec3 baseCol, vec3 normal, vec3 viewDir) {
 
   // Two-sided normal so clipped interior cuts also shade crisply
   float diff1 = abs(dot(normal, keyLight));
-  float diff2 = abs(dot(normal, fillLight)) * 0.35;
+  float diff2 = abs(dot(normal, fillLight)) * 0.38;
   vec3 halfVec = normalize(keyLight + viewDir);
-  float spec = pow(max(abs(dot(normal, halfVec)), 0.0), 28.0) * 0.42;
-  float rim = pow(1.0 - max(abs(dot(normal, viewDir)), 0.0), 2.5) * 0.16;
+  float spec = pow(max(abs(dot(normal, halfVec)), 0.0), 32.0) * 0.45;
+  float rim = pow(1.0 - max(abs(dot(normal, viewDir)), 0.0), 2.4) * 0.18;
 
-  vec3 lit = baseCol * (0.28 + 0.78 * diff1 + diff2) + vec3(spec) + baseCol * rim;
+  vec3 lit = baseCol * (0.26 + 0.80 * diff1 + diff2) + vec3(spec) + baseCol * rim;
   return mix(baseCol, lit, uShading);
 }
 
@@ -143,7 +148,7 @@ void main() {
     }
   }
 
-  for (float stepIdx = 0.0; stepIdx < 320.0; stepIdx += 1.0) {
+  for (float stepIdx = 0.0; stepIdx < 500.0; stepIdx += 1.0) {
     if (stepIdx >= uSteps || t >= tf) break;
     vec3 wNorm = (ro + rd * t - uBoxMin) / span;
     vec3 p = vec3(wNorm.x, 1.0 - wNorm.z, wNorm.y);
@@ -162,7 +167,7 @@ void main() {
     } else if (uMode == 4) {
       // Iso-surface (SSD)
       if (v >= uThreshold) {
-        vec3 n = estimateGradient(p);
+        vec3 n = estimateGradient(p).xyz;
         vec4 tfCol = texture(uLUT, vec2(v, 0.5));
         vec3 baseCol = length(tfCol.rgb) > 0.05 ? tfCol.rgb : vec3(0.92, 0.89, 0.82);
         vec3 shaded = shadeBlinnPhong(baseCol, n, viewDir) * uBrightness;
@@ -171,34 +176,45 @@ void main() {
         break;
       }
     } else {
-      // Mode 0: Full Gradient-Shaded Volume Rendering (VR) with 1D Transfer LUT
+      // Mode 0: Full Gradient-Shaded & Edge-Enhanced Volume Rendering (VR)
       vec4 tfCol = texture(uLUT, vec2(v, 0.5));
       float a = tfCol.a;
 
       // Linked 3D MPR crosshair plane highlight
-      if (uShowCrosshairs == 1 && a > 0.02) {
+      if (uShowCrosshairs == 1 && a > 0.015) {
         vec3 pd = abs(p - uCursor);
         float dp = min(pd.x, min(pd.y, pd.z));
-        if (dp < 0.0045) {
+        if (dp < 0.004) {
           vec3 pc = (pd.z <= pd.x && pd.z <= pd.y)
             ? vec3(0.92, 0.28, 0.60)
             : (pd.y <= pd.x ? vec3(0.02, 0.71, 0.83) : vec3(0.52, 0.80, 0.09));
-          tfCol.rgb = mix(tfCol.rgb, pc, 0.6);
-          a = max(a, 0.35);
+          tfCol.rgb = mix(tfCol.rgb, pc, 0.55);
+          a = max(a, 0.30);
         }
       }
 
-      if (a > 0.01) {
+      if (a > 0.005) {
         vec3 col = tfCol.rgb;
-        if (uShading > 0.01) {
-          vec3 n = estimateGradient(p);
-          col = shadeBlinnPhong(col, n, viewDir);
+        float boundaryWeight = 1.0;
+        if (uShading > 0.01 || uEdgeBoost > 0.01) {
+          vec4 gn = estimateGradient(p);
+          if (uEdgeBoost > 0.01) {
+            float edgeFactor = smoothstep(0.004, 0.075, gn.w) * 1.85 + 0.18;
+            boundaryWeight = mix(1.0, edgeFactor, uEdgeBoost);
+          }
+          if (uShading > 0.01) {
+            col = shadeBlinnPhong(col, gn.xyz, viewDir);
+          }
         }
-        col *= uBrightness;
-        float alpha = clamp(a * uOpacity * dt * 3.4, 0.0, 1.0);
+        float depthAtten = mix(1.0, 1.0 - acc.a * 0.25, uShading);
+        col *= uBrightness * depthAtten;
+        float alpha = clamp(a * boundaryWeight * uOpacity * dt * 4.2, 0.0, 1.0);
         acc.rgb += (1.0 - acc.a) * alpha * col;
         acc.a += (1.0 - acc.a) * alpha;
         if (acc.a > 0.985) break;
+      } else {
+        // Fast empty-space leap when alpha is zero
+        t += dt * 0.5;
       }
     }
 
@@ -255,11 +271,12 @@ function rotY(a: number): Float32Array {
   return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
 }
 
+const _hfFloatView = new Float32Array(1);
+const _hfIntView = new Int32Array(_hfFloatView.buffer);
+
 function toHalfFloat(val: number): number {
-  const fView = new Float32Array(1);
-  const iView = new Int32Array(fView.buffer);
-  fView[0] = val;
-  const x = iView[0];
+  _hfFloatView[0] = val;
+  const x = _hfIntView[0];
   let bits = (x >> 16) & 0x8000;
   let m = (x >> 12) & 0x07ff;
   const e = (x >> 23) & 0xff;
@@ -277,6 +294,51 @@ function toHalfFloat(val: number): number {
   bits |= ((e - 112) << 10) | (m >> 1);
   bits += m & 1;
   return bits;
+}
+
+function resampleVolumeForGPU(
+  volume: VolumeData,
+  maxTexDim: number
+): { nx: number; ny: number; nz: number; data: Float32Array } {
+  const maxVoxels = 42_000_000;
+  let scale = 1;
+  const maxSide = Math.max(volume.nx, volume.ny, volume.nz);
+  if (maxSide > maxTexDim) {
+    scale = Math.min(scale, maxTexDim / maxSide);
+  }
+  const total = volume.nx * volume.ny * volume.nz;
+  if (total * scale * scale * scale > maxVoxels) {
+    scale = Math.min(scale, Math.cbrt(maxVoxels / total));
+  }
+  if (scale >= 0.99) {
+    return { nx: volume.nx, ny: volume.ny, nz: volume.nz, data: volume.data };
+  }
+
+  const nx = Math.max(2, Math.round(volume.nx * scale));
+  const ny = Math.max(2, Math.round(volume.ny * scale));
+  const nz = Math.max(2, Math.round(volume.nz * scale));
+  const out = new Float32Array(nx * ny * nz);
+  const src = volume.data;
+  const sx = volume.nx / nx;
+  const sy = volume.ny / ny;
+  const sz = volume.nz / nz;
+  const srcNxy = volume.nx * volume.ny;
+
+  for (let z = 0; z < nz; z++) {
+    const oz = Math.min(volume.nz - 1, Math.floor(z * sz));
+    const zBase = oz * srcNxy;
+    const dstZ = z * nx * ny;
+    for (let y = 0; y < ny; y++) {
+      const oy = Math.min(volume.ny - 1, Math.floor(y * sy));
+      const yBase = zBase + oy * volume.nx;
+      const dstY = dstZ + y * nx;
+      for (let x = 0; x < nx; x++) {
+        const ox = Math.min(volume.nx - 1, Math.floor(x * sx));
+        out[dstY + x] = src[yBase + ox];
+      }
+    }
+  }
+  return { nx, ny, nz, data: out };
 }
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
@@ -315,6 +377,11 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const interactingRef = useRef(false);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  const gpuDimsRef = useRef<{ nx: number; ny: number; nz: number }>({
+    nx: volume.nx,
+    ny: volume.ny,
+    nz: volume.nz
+  });
 
   const propsRef = useRef({ volume, pos, ww, wl, clipBox, camera, settings });
   propsRef.current = { volume, pos, ww, wl, clipBox, camera, settings };
@@ -380,7 +447,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     const uniformNames = [
       'uMVP', 'uCamPos', 'uBoxMin', 'uBoxMax', 'uClipMin', 'uClipMax',
       'uVolDims', 'uVoxelSpacing', 'uCursor', 'uBgColor',
-      'uThreshold', 'uOpacity', 'uShading', 'uBrightness',
+      'uThreshold', 'uOpacity', 'uShading', 'uBrightness', 'uEdgeBoost',
       'uLow', 'uHigh', 'uSteps', 'uMode', 'uShowCrosshairs', 'uShowClipBox',
       'uVol', 'uLUT'
     ];
@@ -431,7 +498,12 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
       gl.uniform3f(uniforms.uClipMin, cb.xMin, cb.yMin, cb.zMin);
       gl.uniform3f(uniforms.uClipMax, cb.xMax, cb.yMax, cb.zMax);
-      gl.uniform3f(uniforms.uVolDims, vol.nx, vol.ny, vol.nz);
+      gl.uniform3f(
+        uniforms.uVolDims,
+        gpuDimsRef.current.nx,
+        gpuDimsRef.current.ny,
+        gpuDimsRef.current.nz
+      );
       gl.uniform3f(uniforms.uVoxelSpacing, vol.spx, vol.spy, vol.spz);
       gl.uniform3f(uniforms.uCursor, (p.x + 0.5) / vol.nx, (p.y + 0.5) / vol.ny, (p.z + 0.5) / vol.nz);
 
@@ -439,10 +511,11 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       gl.uniform1f(uniforms.uOpacity, st.opacity);
       gl.uniform1f(uniforms.uShading, st.shading);
       gl.uniform1f(uniforms.uBrightness, st.brightness);
+      gl.uniform1f(uniforms.uEdgeBoost, st.edgeBoost);
       gl.uniform1f(uniforms.uLow, (curWL - curWW / 2 - VOLUME_HU_MIN) / VOLUME_HU_RANGE);
       gl.uniform1f(uniforms.uHigh, (curWL + curWW / 2 - VOLUME_HU_MIN) / VOLUME_HU_RANGE);
 
-      const steps = isInteractive ? 110 : st.highQuality ? 230 : 150;
+      const steps = isInteractive ? 150 : st.highQuality ? 400 : 240;
       gl.uniform1f(uniforms.uSteps, steps);
 
       const modeMap: Record<string, number> = { vr: 0, mip: 1, minip: 2, drr: 3, surface: 4 };
@@ -531,20 +604,23 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-    const len = volume.data.length;
+    const max3dDim = (gl.getParameter(gl.MAX_3D_TEXTURE_SIZE) as number) || 512;
+    const gpuVol = resampleVolumeForGPU(volume, max3dDim);
+    gpuDimsRef.current = { nx: gpuVol.nx, ny: gpuVol.ny, nz: gpuVol.nz };
+    const len = gpuVol.data.length;
     if (supportsFloatLinear) {
       const halfData = new Uint16Array(len);
       for (let i = 0; i < len; i++) {
-        const n = Math.max(0, Math.min(1, (volume.data[i] - VOLUME_HU_MIN) / VOLUME_HU_RANGE));
+        const n = Math.max(0, Math.min(1, (gpuVol.data[i] - VOLUME_HU_MIN) / VOLUME_HU_RANGE));
         halfData[i] = toHalfFloat(n);
       }
       gl.texImage3D(
         gl.TEXTURE_3D,
         0,
         gl.R16F,
-        volume.nx,
-        volume.ny,
-        volume.nz,
+        gpuVol.nx,
+        gpuVol.ny,
+        gpuVol.nz,
         0,
         gl.RED,
         gl.HALF_FLOAT,
@@ -553,16 +629,16 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     } else {
       const byteData = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
-        const n = Math.max(0, Math.min(1, (volume.data[i] - VOLUME_HU_MIN) / VOLUME_HU_RANGE));
+        const n = Math.max(0, Math.min(1, (gpuVol.data[i] - VOLUME_HU_MIN) / VOLUME_HU_RANGE));
         byteData[i] = (n * 255) | 0;
       }
       gl.texImage3D(
         gl.TEXTURE_3D,
         0,
         gl.R8,
-        volume.nx,
-        volume.ny,
-        volume.nz,
+        gpuVol.nx,
+        gpuVol.ny,
+        gpuVol.nz,
         0,
         gl.RED,
         gl.UNSIGNED_BYTE,
@@ -573,12 +649,16 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     draw(false);
   }, [volume]);
 
-  // Upload 1D Transfer Function LUT when preset or threshold changes
+  // Upload 1D Transfer Function LUT when preset, threshold, or contrast changes
   useEffect(() => {
     const st = glStateRef.current;
     if (!st) return;
     const { gl, lutTex, draw } = st;
-    const lutBytes = buildTransferTextureData(settings.preset, settings.thresholdHU);
+    const lutBytes = buildTransferTextureData(
+      settings.preset,
+      settings.thresholdHU,
+      settings.contrastScale
+    );
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, lutTex);
@@ -586,10 +666,20 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lutBytes);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA8,
+      TRANSFER_LUT_SIZE,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      lutBytes
+    );
 
     draw(interactingRef.current);
-  }, [settings.preset, settings.thresholdHU]);
+  }, [settings.preset, settings.thresholdHU, settings.contrastScale]);
 
   // Redraw whenever render parameters / cursor / camera / clipBox change
   useEffect(() => {

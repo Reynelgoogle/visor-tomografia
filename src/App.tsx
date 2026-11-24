@@ -122,10 +122,12 @@ export function App() {
   const [settings3D, setSettings3D] = useState<Settings3D>({
     renderMode: 'vr',
     preset: 'bone',
-    thresholdHU: 140,
+    thresholdHU: 180,
     opacity: 0.9,
     shading: 0.85,
-    brightness: 1.05,
+    brightness: 1.08,
+    edgeBoost: 0.72,
+    contrastScale: 1.0,
     showCrosshairs: true,
     showClipBox: false,
     autoSpin: false,
@@ -149,7 +151,7 @@ export function App() {
 
   const [tagsModalOpen, setTagsModalOpen] = useState<boolean>(false);
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
-  const [clipExpanded, setClipExpanded] = useState<boolean>(false);
+  const [clipExpanded, setClipExpanded] = useState<boolean>(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -185,13 +187,16 @@ export function App() {
     setProbes([]);
     setObliqueDeg(0);
 
-    // Pick smart 3D preset based on phantom or modality
-    if (nextVol.meta.phantomId === 'torax') {
-      setSettings3D((prev) => ({ ...prev, preset: 'lung', thresholdHU: -850 }));
-    } else if (nextVol.meta.phantomId === 'abdomen') {
-      setSettings3D((prev) => ({ ...prev, preset: 'angio', thresholdHU: 140 }));
+    // Pick smart 3D preset based on phantom or study description
+    const desc = `${nextVol.meta.study} ${nextVol.meta.series}`.toLowerCase();
+    if (nextVol.meta.phantomId === 'torax' || desc.includes('thorax') || desc.includes('torax') || desc.includes('pulm')) {
+      setSettings3D((prev) => ({ ...prev, preset: 'lung', thresholdHU: -850, contrastScale: 1 }));
+    } else if (nextVol.meta.phantomId === 'abdomen' || desc.includes('abdo') || desc.includes('renal') || desc.includes('pelv')) {
+      setSettings3D((prev) => ({ ...prev, preset: 'viscera', thresholdHU: 35, contrastScale: 1 }));
+    } else if (desc.includes('angio') || desc.includes('cta')) {
+      setSettings3D((prev) => ({ ...prev, preset: 'angio', thresholdHU: 115, contrastScale: 1 }));
     } else {
-      setSettings3D((prev) => ({ ...prev, preset: 'bone', thresholdHU: 140 }));
+      setSettings3D((prev) => ({ ...prev, preset: 'bone', thresholdHU: 180, contrastScale: 1 }));
     }
   }, []);
 
@@ -1280,7 +1285,7 @@ export function App() {
             <div className="space-y-2">
               <div>
                 <div className="flex justify-between text-xs mb-0.5">
-                  <span className="text-slate-300">Umbral / Desplazamiento</span>
+                  <span className="text-slate-300">Umbral / Centro 3D</span>
                   <span className="font-mono text-amber-400">{settings3D.thresholdHU} HU</span>
                 </div>
                 <input
@@ -1296,13 +1301,45 @@ export function App() {
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-0.5">
+                  <span className="text-slate-300">Contraste 3D (Ventana)</span>
+                  <span className="font-mono text-amber-400">{settings3D.contrastScale.toFixed(2)}×</span>
+                </div>
+                <input
+                  type="range"
+                  min={40}
+                  max={240}
+                  value={Math.round(settings3D.contrastScale * 100)}
+                  onChange={(e) =>
+                    setSettings3D((s) => ({ ...s, contrastScale: Number(e.target.value) / 100 }))
+                  }
+                  className="w-full clinical-range"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs mb-0.5">
+                  <span className="text-slate-300">Realce de bordes / órganos</span>
+                  <span className="font-mono text-amber-400">{Math.round(settings3D.edgeBoost * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(settings3D.edgeBoost * 100)}
+                  onChange={(e) =>
+                    setSettings3D((s) => ({ ...s, edgeBoost: Number(e.target.value) / 100 }))
+                  }
+                  className="w-full clinical-range"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs mb-0.5">
                   <span className="text-slate-300">Opacidad volumétrica</span>
                   <span className="font-mono text-amber-400">{Math.round(settings3D.opacity * 100)}%</span>
                 </div>
                 <input
                   type="range"
                   min={15}
-                  max={150}
+                  max={160}
                   value={Math.round(settings3D.opacity * 100)}
                   onChange={(e) =>
                     setSettings3D((s) => ({ ...s, opacity: Number(e.target.value) / 100 }))
@@ -1430,7 +1467,40 @@ export function App() {
               </div>
 
               {clipExpanded && (
-                <div className="mt-2 space-y-2 text-[11px]">
+                <div className="mt-2 space-y-2.5 text-[11px]">
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setClipBox({ xMin: 0, xMax: 1, yMin: 0.28, yMax: 0.92, zMin: 0, zMax: 1 })}
+                      title="Recorta la pared abdominal anterior para ver estómago, asas y vísceras"
+                      className="px-1.5 py-1 rounded border border-slate-800 bg-[#141923] hover:border-amber-500/50 text-slate-300 text-[10px]"
+                    >
+                      Sin pared ant.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClipBox({ xMin: 0.08, xMax: 0.92, yMin: 0.48, yMax: 0.88, zMin: 0, zMax: 1 })}
+                      title="Expone riñones, aorta y vena cava retroperitoneales"
+                      className="px-1.5 py-1 rounded border border-slate-800 bg-[#141923] hover:border-amber-500/50 text-slate-300 text-[10px]"
+                    >
+                      Retroperitoneo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClipBox({ xMin: 0.45, xMax: 1, yMin: 0, yMax: 1, zMin: 0, zMax: 1 })}
+                      className="px-1.5 py-1 rounded border border-slate-800 bg-[#141923] hover:border-amber-500/50 text-slate-300 text-[10px]"
+                    >
+                      Corte sagital
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClipBox(DEFAULT_CLIP_BOX)}
+                      className="px-1.5 py-1 rounded border border-slate-800 bg-[#141923] hover:border-amber-500/50 text-slate-300 text-[10px]"
+                    >
+                      Volumen completo
+                    </button>
+                  </div>
+
                   <div className="space-y-1">
                     <div className="flex justify-between text-slate-400">
                       <span>Eje X (R → L)</span>

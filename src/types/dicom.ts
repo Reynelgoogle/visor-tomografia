@@ -15,7 +15,16 @@ export type MprProjectionMode = 'thin' | 'mip' | 'minip' | 'avg';
 export type ColorMapId = 'gray' | 'hot' | 'viridis' | 'cardiac' | 'pet';
 
 export type RenderMode3D = 'vr' | 'mip' | 'minip' | 'drr' | 'surface';
-export type TransferPreset3DId = 'bone' | 'angio' | 'soft' | 'airways' | 'lung' | 'manual';
+export type TransferPreset3DId =
+  | 'bone'
+  | 'angio'
+  | 'viscera'
+  | 'kidney'
+  | 'gi'
+  | 'soft'
+  | 'airways'
+  | 'lung'
+  | 'manual';
 
 export type LayoutMode =
   | 'quad'
@@ -160,6 +169,8 @@ export interface Settings3D {
   opacity: number;
   shading: number;
   brightness: number;
+  edgeBoost: number;
+  contrastScale: number;
   showCrosshairs: boolean;
   showClipBox: boolean;
   autoSpin: boolean;

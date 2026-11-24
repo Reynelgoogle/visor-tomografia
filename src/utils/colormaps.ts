@@ -112,45 +112,96 @@ export interface TransferPreset3DMeta {
   stops: Array<[number, number, number, number, number]>; // [hu, r, g, b, alpha(0..1)]
 }
 
+export const TRANSFER_LUT_SIZE = 2048;
+
 export const TRANSFER_PRESETS_3D: TransferPreset3DMeta[] = [
   {
-    id: 'bone',
-    label: 'Hueso',
-    defaultThreshold: 140,
+    id: 'viscera',
+    label: 'Vísceras / Abdo',
+    defaultThreshold: 35,
     stops: [
       [-1024, 0, 0, 0, 0],
-      [-50, 140, 82, 72, 0],
-      [35, 168, 96, 82, 0.03],
-      [140, 205, 168, 128, 0.14],
-      [320, 238, 224, 198, 0.65],
-      [750, 252, 246, 232, 0.94],
-      [1600, 255, 255, 250, 1.0]
+      [-20, 125, 62, 52, 0],
+      [25, 168, 84, 68, 0.02],
+      [55, 195, 96, 78, 0.22],
+      [105, 224, 122, 86, 0.42],
+      [175, 238, 68, 62, 0.72],
+      [320, 248, 175, 118, 0.84],
+      [550, 232, 224, 206, 0.28],
+      [1200, 248, 246, 240, 0.45]
     ]
   },
   {
     id: 'angio',
     label: 'Angio / Vasos',
-    defaultThreshold: 140,
+    defaultThreshold: 115,
     stops: [
       [-1024, 0, 0, 0, 0],
-      [110, 140, 28, 32, 0],
-      [175, 220, 38, 48, 0.52],
-      [320, 248, 96, 72, 0.85],
-      [520, 240, 212, 180, 0.45],
-      [900, 248, 244, 234, 0.72],
-      [1600, 255, 255, 255, 0.92]
+      [90, 145, 26, 30, 0],
+      [125, 212, 42, 46, 0.42],
+      [210, 245, 76, 56, 0.85],
+      [340, 255, 138, 82, 0.92],
+      [480, 225, 212, 188, 0.22],
+      [900, 246, 242, 232, 0.45],
+      [1600, 255, 255, 255, 0.75]
+    ]
+  },
+  {
+    id: 'kidney',
+    label: 'Riñón / Corteza',
+    defaultThreshold: 65,
+    stops: [
+      [-1024, 0, 0, 0, 0],
+      [30, 135, 62, 58, 0],
+      [75, 182, 78, 66, 0.16],
+      [135, 222, 98, 72, 0.48],
+      [220, 245, 148, 92, 0.78],
+      [360, 255, 214, 142, 0.90],
+      [600, 230, 224, 210, 0.18],
+      [1400, 245, 242, 235, 0.35]
+    ]
+  },
+  {
+    id: 'gi',
+    label: 'Estómago / Asas',
+    defaultThreshold: -220,
+    stops: [
+      [-1024, 0, 0, 0, 0],
+      [-860, 42, 178, 208, 0],
+      [-650, 62, 204, 228, 0.24],
+      [-280, 214, 152, 96, 0.34],
+      [-120, 188, 126, 86, 0],
+      [-15, 155, 78, 68, 0],
+      [25, 198, 108, 86, 0.26],
+      [95, 232, 148, 112, 0.38],
+      [220, 245, 92, 72, 0.65],
+      [500, 225, 218, 204, 0.14],
+      [1400, 245, 242, 236, 0.28]
+    ]
+  },
+  {
+    id: 'bone',
+    label: 'Hueso',
+    defaultThreshold: 180,
+    stops: [
+      [-1024, 0, 0, 0, 0],
+      [80, 168, 118, 96, 0],
+      [180, 208, 174, 136, 0.16],
+      [340, 238, 224, 198, 0.68],
+      [750, 252, 246, 232, 0.95],
+      [1600, 255, 255, 250, 1.0]
     ]
   },
   {
     id: 'soft',
     label: 'Músculo y piel',
-    defaultThreshold: -180,
+    defaultThreshold: -140,
     stops: [
       [-1024, 0, 0, 0, 0],
-      [-260, 185, 132, 112, 0],
-      [-80, 196, 138, 116, 0.14],
-      [40, 178, 72, 68, 0.34],
-      [180, 224, 198, 165, 0.62],
+      [-220, 185, 132, 112, 0],
+      [-80, 196, 138, 116, 0.12],
+      [40, 182, 76, 68, 0.32],
+      [180, 226, 198, 165, 0.65],
       [600, 250, 242, 224, 0.92],
       [1600, 255, 255, 255, 1.0]
     ]
@@ -162,11 +213,11 @@ export const TRANSFER_PRESETS_3D: TransferPreset3DMeta[] = [
     stops: [
       [-1024, 0, 0, 0, 0],
       [-985, 22, 180, 212, 0],
-      [-930, 56, 210, 232, 0.55],
+      [-930, 56, 210, 232, 0.58],
       [-760, 20, 130, 165, 0.08],
-      [40, 120, 80, 75, 0.015],
-      [550, 225, 215, 195, 0.25],
-      [1600, 255, 255, 245, 0.6]
+      [40, 120, 80, 75, 0.012],
+      [550, 225, 215, 195, 0.24],
+      [1600, 255, 255, 245, 0.55]
     ]
   },
   {
@@ -177,8 +228,8 @@ export const TRANSFER_PRESETS_3D: TransferPreset3DMeta[] = [
       [-1024, 0, 0, 0, 0],
       [-860, 48, 145, 185, 0],
       [-720, 72, 175, 212, 0.18],
-      [-320, 215, 120, 110, 0.42],
-      [80, 190, 82, 76, 0.22],
+      [-320, 215, 120, 110, 0.45],
+      [80, 190, 82, 76, 0.20],
       [450, 238, 228, 208, 0.72],
       [1600, 255, 255, 250, 0.95]
     ]
@@ -186,11 +237,10 @@ export const TRANSFER_PRESETS_3D: TransferPreset3DMeta[] = [
   {
     id: 'manual',
     label: 'Manual',
-    defaultThreshold: -150,
+    defaultThreshold: 40,
     stops: [
       [-1024, 0, 0, 0, 0],
-      [-150, 168, 112, 98, 0.08],
-      [45, 198, 118, 96, 0.36],
+      [40, 198, 118, 96, 0.36],
       [280, 240, 214, 178, 0.76],
       [900, 255, 248, 235, 0.96],
       [1600, 255, 255, 255, 1.0]
@@ -204,39 +254,44 @@ export const VOLUME_HU_RANGE = VOLUME_HU_MAX - VOLUME_HU_MIN;
 
 export function buildTransferTextureData(
   presetId: TransferPreset3DId,
-  thresholdHU: number
+  thresholdHU: number,
+  contrastScale = 1
 ): Uint8Array {
-  const out = new Uint8Array(256 * 4);
+  const size = TRANSFER_LUT_SIZE;
+  const out = new Uint8Array(size * 4);
   const preset = TRANSFER_PRESETS_3D.find((p) => p.id === presetId) ?? TRANSFER_PRESETS_3D[0];
+  const scale = Math.max(0.25, Math.min(3, contrastScale));
 
   if (presetId === 'manual') {
-    const thrNorm = (thresholdHU - VOLUME_HU_MIN) / VOLUME_HU_RANGE;
-    for (let i = 0; i < 256; i++) {
-      const t = i / 255;
-      const hu = VOLUME_HU_MIN + t * VOLUME_HU_RANGE;
-      const a = Math.max(0, Math.min(1, (t - thrNorm) / 0.12));
-      let r = 175, g = 105, b = 92;
-      if (hu > 160) {
-        const f = Math.min(1, (hu - 160) / 420);
-        r = Math.round(195 + f * 58);
+    const center = thresholdHU;
+    const width = 260 / scale;
+    for (let i = 0; i < size; i++) {
+      const hu = VOLUME_HU_MIN + (i / (size - 1)) * VOLUME_HU_RANGE;
+      const a = Math.max(0, Math.min(1, (hu - center) / width));
+      let r = 182, g = 96, b = 82;
+      if (hu > center + width * 0.45) {
+        const f = Math.min(1, (hu - (center + width * 0.45)) / (width * 1.4));
+        r = Math.round(198 + f * 55);
         g = Math.round(135 + f * 108);
-        b = Math.round(115 + f * 118);
+        b = Math.round(110 + f * 124);
       }
       out[i * 4] = r;
       out[i * 4 + 1] = g;
       out[i * 4 + 2] = b;
-      out[i * 4 + 3] = Math.round(a * a * 255);
+      out[i * 4 + 3] = Math.round(Math.pow(a, 1.35) * 255);
     }
     return out;
   }
 
   const stops = preset.stops;
-  // Allow user threshold slider to smoothly offset/gate lower intensities on non-manual presets too
   const shift = thresholdHU - preset.defaultThreshold;
 
-  for (let i = 0; i < 256; i++) {
-    const hu = VOLUME_HU_MIN + (i / 255) * VOLUME_HU_RANGE - shift * 0.65;
+  for (let i = 0; i < size; i++) {
+    const rawHu = VOLUME_HU_MIN + (i / (size - 1)) * VOLUME_HU_RANGE;
+    // Apply threshold shift & contrast expansion around the preset anchor
+    const hu = preset.defaultThreshold + (rawHu - thresholdHU) * scale;
     let r = 0, g = 0, b = 0, a = 0;
+
     if (hu <= stops[0][0]) {
       [, r, g, b, a] = stops[0];
     } else if (hu >= stops[stops.length - 1][0]) {
@@ -255,6 +310,7 @@ export function buildTransferTextureData(
         }
       }
     }
+    void shift;
     out[i * 4] = Math.max(0, Math.min(255, Math.round(r)));
     out[i * 4 + 1] = Math.max(0, Math.min(255, Math.round(g)));
     out[i * 4 + 2] = Math.max(0, Math.min(255, Math.round(b)));
