@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  // Rutas relativas: el portable de Windows carga dist/index.html
+  // con file://, donde las rutas absolutas /assets/... no funcionan.
+  base: './',
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0',
