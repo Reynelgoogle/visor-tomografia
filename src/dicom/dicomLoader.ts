@@ -217,12 +217,32 @@ function samplesToFloat32(
   const maxStoredVal = (1 << bitsStored) - 1;
 
   if (bpp === 2) {
+    const len = Math.min(pixelCount, rawBytes.byteLength >> 1);
+    if (!isBigEndian && (rawBytes.byteOffset & 1) === 0) {
+      const typed =
+        pixelRepresentation === 1
+          ? new Int16Array(rawBytes.buffer, rawBytes.byteOffset, len)
+          : new Uint16Array(rawBytes.buffer, rawBytes.byteOffset, len);
+      if (!invertMonochrome1 && slope === 1 && intercept === 0) {
+        out.set(typed);
+      } else if (!invertMonochrome1) {
+        for (let i = 0; i < len; i++) {
+          out[i] = typed[i] * slope + intercept;
+        }
+      } else {
+        for (let i = 0; i < len; i++) {
+          out[i] = (maxStoredVal - typed[i]) * slope + intercept;
+        }
+      }
+      return out;
+    }
+
     const dv = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
-    const len = Math.min(pixelCount, Math.floor(rawBytes.byteLength / 2));
     for (let i = 0; i < len; i++) {
-      let val = pixelRepresentation === 1
-        ? dv.getInt16(i * 2, !isBigEndian)
-        : dv.getUint16(i * 2, !isBigEndian);
+      let val =
+        pixelRepresentation === 1
+          ? dv.getInt16(i * 2, !isBigEndian)
+          : dv.getUint16(i * 2, !isBigEndian);
       if (invertMonochrome1) {
         val = maxStoredVal - val;
       }

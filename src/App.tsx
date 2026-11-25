@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Activity,
   Box,
@@ -57,6 +57,7 @@ import {
   tissueNameFromHU
 } from './utils/colormaps';
 import { getPlaneDims, sampleVoxel } from './utils/mprEngine';
+import { getHoverVoxelInfo, subscribeHoverVoxel } from './utils/cursorProbeStore';
 
 const DEFAULT_CLIP_BOX: ClipBox = {
   xMin: 0,
@@ -81,6 +82,41 @@ const DEFAULT_TRANSFORM: Viewport2DTransformState = {
   flipV: false,
   rot90: 0
 };
+
+const CursorTelemetry = memo(
+  ({ volume, pos }: { volume: VolumeData; pos: { x: number; y: number; z: number } }) => {
+    const hoverVoxel = useSyncExternalStore(subscribeHoverVoxel, getHoverVoxelInfo);
+    const readoutVoxel = hoverVoxel ?? {
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      hu: sampleVoxel(volume, pos.x, pos.y, pos.z)
+    };
+
+    return (
+      <section className="space-y-2">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Densidad bajo el cursor
+        </h2>
+        <div className="p-3 rounded-md bg-[#07090D] border border-slate-800/90 space-y-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-2xl font-bold text-slate-100">
+              {Math.round(readoutVoxel.hu)}
+            </span>
+            <span className="font-mono text-xs text-slate-400">HU</span>
+            <span className="ml-auto text-xs text-cyan-400 font-medium truncate">
+              {tissueNameFromHU(readoutVoxel.hu)}
+            </span>
+          </div>
+          <div className="font-mono text-[11px] text-slate-400">
+            x {(readoutVoxel.x * volume.spx).toFixed(1)} · y {(readoutVoxel.y * volume.spy).toFixed(1)} · z{' '}
+            {(readoutVoxel.z * volume.spz).toFixed(1)} mm
+          </div>
+        </div>
+      </section>
+    );
+  }
+);
 
 export function App() {
   const [phantomId, setPhantomId] = useState<PhantomId>('craneo');
@@ -141,7 +177,6 @@ export function App() {
   const [probes, setProbes] = useState<HuProbe[]>([]);
   const seqRef = useRef<number>(1);
 
-  const [hoverVoxel, setHoverVoxel] = useState<{ x: number; y: number; z: number; hu: number } | null>(null);
   const [loadProgress, setLoadProgress] = useState<DicomLoadProgress | null>(null);
   const [loadMessage, setLoadMessage] = useState<string>(
     'Arrastra archivos DICOM, carpetas o paquetes .zip sobre las vistas. Procesamiento 100% local en navegador.'
@@ -165,6 +200,42 @@ export function App() {
   const registerCapture3D = useCallback((fn: (() => string | null) | null) => {
     capture3DRef.current = fn;
   }, []);
+
+  // Stable callbacks so React.memo on Viewport2D & Viewport3D skips cross-viewport re-renders
+  const handleActivate2D = useCallback((plane: Plane2D) => setActiveView(plane), []);
+  const handleToggleExpand2D = useCallback(
+    (plane: Plane2D) => setLayout((cur) => (cur === plane ? 'quad' : plane)),
+    []
+  );
+  const handleWindowChange = useCallback((nextWW: number, nextWL: number) => {
+    setWW(Math.max(1, Math.min(3000, nextWW)));
+    setWL(Math.max(-1024, Math.min(1400, nextWL)));
+  }, []);
+  const handleTransformChange = useCallback((plane: Plane2D, next: Viewport2DTransformState) => {
+    setTransforms((t) => ({ ...t, [plane]: next }));
+  }, []);
+  const handleAddLength = useCallback((m: Omit<LengthMeasurement, 'id'>) => {
+    const id = seqRef.current++;
+    setLengths((prev) => [...prev, { ...m, id }]);
+  }, []);
+  const handleAddAngle = useCallback((a: Omit<AngleMeasurement, 'id'>) => {
+    const id = seqRef.current++;
+    setAngles((prev) => [...prev, { ...a, id }]);
+  }, []);
+  const handleAddRoi = useCallback((r: Omit<RoiMeasurement, 'id'>) => {
+    const id = seqRef.current++;
+    setRois((prev) => [...prev, { ...r, id }]);
+  }, []);
+  const handleAddProbe = useCallback((p: Omit<HuProbe, 'id'>) => {
+    const id = seqRef.current++;
+    setProbes((prev) => [...prev, { ...p, id }]);
+  }, []);
+  const handleActivate3D = useCallback(() => setActiveView('volume'), []);
+  const handleToggleExpand3D = useCallback(
+    () => setLayout((cur) => (cur === 'volume' ? 'quad' : 'volume')),
+    []
+  );
+  const handleResetCamera3D = useCallback(() => setCamera3D(DEFAULT_CAMERA), []);
 
   const applyVolume = useCallback((nextVol: VolumeData) => {
     setVolume(nextVol);
@@ -338,13 +409,6 @@ export function App() {
     a.href = dataUrl;
     a.download = `tomografia-${activeView}-${Date.now()}.png`;
     a.click();
-  };
-
-  const readoutVoxel = hoverVoxel ?? {
-    x: pos.x,
-    y: pos.y,
-    z: pos.z,
-    hu: sampleVoxel(volume, pos.x, pos.y, pos.z)
   };
 
   const totalAnnotations = lengths.length + angles.length + rois.length + probes.length;
@@ -1001,31 +1065,15 @@ export function App() {
                     angles={angles}
                     rois={rois}
                     probes={probes}
-                    onActivate={() => setActiveView('axial')}
-                    onToggleExpand={() => setLayout(layout === 'axial' ? 'quad' : 'axial')}
+                    onActivate={handleActivate2D}
+                    onToggleExpand={handleToggleExpand2D}
                     onMoveCursor={setPos}
-                    onWindowChange={(nextWW, nextWL) => {
-                      setWW(Math.max(1, Math.min(3000, nextWW)));
-                      setWL(Math.max(-1024, Math.min(1400, nextWL)));
-                    }}
-                    onTransformChange={(next) => setTransforms((t) => ({ ...t, axial: next }))}
-                    onHoverVoxel={setHoverVoxel}
-                    onAddLength={(m) => {
-                      const id = seqRef.current++;
-                      setLengths((prev) => [...prev, { ...m, id }]);
-                    }}
-                    onAddAngle={(a) => {
-                      const id = seqRef.current++;
-                      setAngles((prev) => [...prev, { ...a, id }]);
-                    }}
-                    onAddRoi={(r) => {
-                      const id = seqRef.current++;
-                      setRois((prev) => [...prev, { ...r, id }]);
-                    }}
-                    onAddProbe={(p) => {
-                      const id = seqRef.current++;
-                      setProbes((prev) => [...prev, { ...p, id }]);
-                    }}
+                    onWindowChange={handleWindowChange}
+                    onTransformChange={handleTransformChange}
+                    onAddLength={handleAddLength}
+                    onAddAngle={handleAddAngle}
+                    onAddRoi={handleAddRoi}
+                    onAddProbe={handleAddProbe}
                     registerCapture={registerCapture2D}
                   />
                 </div>
@@ -1056,31 +1104,15 @@ export function App() {
                     angles={angles}
                     rois={rois}
                     probes={probes}
-                    onActivate={() => setActiveView('coronal')}
-                    onToggleExpand={() => setLayout(layout === 'coronal' ? 'quad' : 'coronal')}
+                    onActivate={handleActivate2D}
+                    onToggleExpand={handleToggleExpand2D}
                     onMoveCursor={setPos}
-                    onWindowChange={(nextWW, nextWL) => {
-                      setWW(Math.max(1, Math.min(3000, nextWW)));
-                      setWL(Math.max(-1024, Math.min(1400, nextWL)));
-                    }}
-                    onTransformChange={(next) => setTransforms((t) => ({ ...t, coronal: next }))}
-                    onHoverVoxel={setHoverVoxel}
-                    onAddLength={(m) => {
-                      const id = seqRef.current++;
-                      setLengths((prev) => [...prev, { ...m, id }]);
-                    }}
-                    onAddAngle={(a) => {
-                      const id = seqRef.current++;
-                      setAngles((prev) => [...prev, { ...a, id }]);
-                    }}
-                    onAddRoi={(r) => {
-                      const id = seqRef.current++;
-                      setRois((prev) => [...prev, { ...r, id }]);
-                    }}
-                    onAddProbe={(p) => {
-                      const id = seqRef.current++;
-                      setProbes((prev) => [...prev, { ...p, id }]);
-                    }}
+                    onWindowChange={handleWindowChange}
+                    onTransformChange={handleTransformChange}
+                    onAddLength={handleAddLength}
+                    onAddAngle={handleAddAngle}
+                    onAddRoi={handleAddRoi}
+                    onAddProbe={handleAddProbe}
                     registerCapture={registerCapture2D}
                   />
                 </div>
@@ -1111,31 +1143,15 @@ export function App() {
                     angles={angles}
                     rois={rois}
                     probes={probes}
-                    onActivate={() => setActiveView('sagital')}
-                    onToggleExpand={() => setLayout(layout === 'sagital' ? 'quad' : 'sagital')}
+                    onActivate={handleActivate2D}
+                    onToggleExpand={handleToggleExpand2D}
                     onMoveCursor={setPos}
-                    onWindowChange={(nextWW, nextWL) => {
-                      setWW(Math.max(1, Math.min(3000, nextWW)));
-                      setWL(Math.max(-1024, Math.min(1400, nextWL)));
-                    }}
-                    onTransformChange={(next) => setTransforms((t) => ({ ...t, sagital: next }))}
-                    onHoverVoxel={setHoverVoxel}
-                    onAddLength={(m) => {
-                      const id = seqRef.current++;
-                      setLengths((prev) => [...prev, { ...m, id }]);
-                    }}
-                    onAddAngle={(a) => {
-                      const id = seqRef.current++;
-                      setAngles((prev) => [...prev, { ...a, id }]);
-                    }}
-                    onAddRoi={(r) => {
-                      const id = seqRef.current++;
-                      setRois((prev) => [...prev, { ...r, id }]);
-                    }}
-                    onAddProbe={(p) => {
-                      const id = seqRef.current++;
-                      setProbes((prev) => [...prev, { ...p, id }]);
-                    }}
+                    onWindowChange={handleWindowChange}
+                    onTransformChange={handleTransformChange}
+                    onAddLength={handleAddLength}
+                    onAddAngle={handleAddAngle}
+                    onAddRoi={handleAddRoi}
+                    onAddProbe={handleAddProbe}
                     registerCapture={registerCapture2D}
                   />
                 </div>
@@ -1161,10 +1177,10 @@ export function App() {
                     settings={settings3D}
                     isActive={activeView === 'volume'}
                     isExpanded={isSingleView && layout === 'volume'}
-                    onActivate={() => setActiveView('volume')}
-                    onToggleExpand={() => setLayout(layout === 'volume' ? 'quad' : 'volume')}
+                    onActivate={handleActivate3D}
+                    onToggleExpand={handleToggleExpand3D}
                     onCameraChange={setCamera3D}
-                    onResetCamera={() => setCamera3D(DEFAULT_CAMERA)}
+                    onResetCamera={handleResetCamera3D}
                     registerCapture={registerCapture3D}
                   />
                 </div>
@@ -1189,27 +1205,8 @@ export function App() {
 
         {/* Right Panel: Live HU Probe, 3D Reconstruction Studio & Measurements */}
         <aside className="w-full lg:w-[296px] shrink-0 bg-[#0E1118] border-t lg:border-t-0 lg:border-l border-slate-800/90 overflow-y-auto thin-scroll p-3.5 space-y-5 order-3">
-          {/* Live Voxel HU Readout */}
-          <section className="space-y-2">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Densidad bajo el cursor
-            </h2>
-            <div className="p-3 rounded-md bg-[#07090D] border border-slate-800/90 space-y-1">
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-mono text-2xl font-bold text-slate-100">
-                  {Math.round(readoutVoxel.hu)}
-                </span>
-                <span className="font-mono text-xs text-slate-400">HU</span>
-                <span className="ml-auto text-xs text-cyan-400 font-medium truncate">
-                  {tissueNameFromHU(readoutVoxel.hu)}
-                </span>
-              </div>
-              <div className="font-mono text-[11px] text-slate-400">
-                x {(readoutVoxel.x * volume.spx).toFixed(1)} · y {(readoutVoxel.y * volume.spy).toFixed(1)} · z{' '}
-                {(readoutVoxel.z * volume.spz).toFixed(1)} mm
-              </div>
-            </div>
-          </section>
+          {/* Live Voxel HU Readout (subscribed independently so hover never re-renders viewports) */}
+          <CursorTelemetry volume={volume} pos={pos} />
 
           {/* 3D Reconstruction Studio */}
           <section className="space-y-3 pt-2 border-t border-slate-800/80">

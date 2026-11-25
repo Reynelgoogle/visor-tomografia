@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useCallback } from 'react';
-import { Maximize2, Minimize2, RotateCw, FlipHorizontal2 } from 'lucide-react';
+import React, { memo, useCallback, useEffect, useRef } from 'react';
+import { FlipHorizontal2, Maximize2, Minimize2, RotateCw } from 'lucide-react';
 import type {
   AngleMeasurement,
   ColorMapId,
@@ -13,6 +13,7 @@ import type {
   VolumeData
 } from '../types/dicom';
 import { get2DColorLut } from '../utils/colormaps';
+import { setHoverVoxelInfo } from '../utils/cursorProbeStore';
 import {
   computeRoiStats,
   extractMprSliceHU,
@@ -42,15 +43,14 @@ interface Viewport2DProps {
   angles: AngleMeasurement[];
   rois: RoiMeasurement[];
   probes: HuProbe[];
-  onActivate: () => void;
-  onToggleExpand: () => void;
+  onActivate: (plane: Plane2D) => void;
+  onToggleExpand: (plane: Plane2D) => void;
   onMoveCursor: (nextPos: { x: number; y: number; z: number }) => void;
   onWindowChange: (ww: number, wl: number) => void;
-  onTransformChange: (next: Viewport2DTransformState) => void;
-  onHoverVoxel: (info: { x: number; y: number; z: number; hu: number } | null) => void;
+  onTransformChange: (plane: Plane2D, next: Viewport2DTransformState) => void;
   onAddLength: (m: Omit<LengthMeasurement, 'id'>) => void;
   onAddAngle: (m: Omit<AngleMeasurement, 'id'>) => void;
-  onAddRoi: (m: Omit<RoiMeasurement, 'id'>) => void;
+  onAddRoi: (r: Omit<RoiMeasurement, 'id'>) => void;
   onAddProbe: (p: Omit<HuProbe, 'id'>) => void;
   registerCapture?: (plane: Plane2D, fn: (() => string | null) | null) => void;
 }
@@ -73,7 +73,7 @@ interface FitTransform {
   cy: number;
 }
 
-export const Viewport2D: React.FC<Viewport2DProps> = ({
+const Viewport2DInner: React.FC<Viewport2DProps> = ({
   plane,
   volume,
   pos,
@@ -99,7 +99,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
   onMoveCursor,
   onWindowChange,
   onTransformChange,
-  onHoverVoxel,
   onAddLength,
   onAddAngle,
   onAddRoi,
@@ -109,7 +108,10 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
   const bodyRef = useRef<HTMLDivElement>(null);
   const imgCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Persistent preallocated offscreen buffers (zero GC churn)
   const offCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const offImageDataRef = useRef<ImageData | null>(null);
   const sliceHURef = useRef<Float32Array>(new Float32Array(0));
   const fitRef = useRef<FitTransform | null>(null);
   const sizeRef = useRef<{ w: number; h: number; dpr: number }>({ w: 300, h: 300, dpr: 1 });
@@ -129,12 +131,17 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     startPanY: number;
     startZoom: number;
   } | null>(null);
+  const moveRafRef = useRef<number>(0);
 
   const meta = PLANE_META[plane];
   const dims = getPlaneDims(volume, plane);
   const currentSliceIdx = pos[dims.axis];
+  const hasOblique = Math.abs(obliqueDeg) > 0.2;
 
-  // Clear pending multi-click tools when tool or plane slice changes
+  // Keep latest pos in ref so oblique key only triggers when oblique is active
+  const posRef = useRef(pos);
+  posRef.current = pos;
+
   useEffect(() => {
     pendingMeasureRef.current = null;
     pendingAngleRef.current = [];
@@ -174,9 +181,10 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       const rad = (transform.rot90 * Math.PI) / 2;
       const cos = Math.round(Math.cos(rad));
       const sin = Math.round(Math.sin(rad));
-      const rx = lx * cos - ly * sin;
-      const ry = lx * sin + ly * cos;
-      return { x: t.cx + rx, y: t.cy + ry };
+      return {
+        x: t.cx + (lx * cos - ly * sin),
+        y: t.cy + (lx * sin + ly * cos)
+      };
     },
     [transform.flipH, transform.flipV, transform.rot90]
   );
@@ -202,6 +210,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     [transform.flipH, transform.flipV, transform.rot90]
   );
 
+  // Stage C2: Draw Vector Overlay (crosshairs, rulers, angles, ROIs, probes)
   const drawOverlay = useCallback(() => {
     const overlay = overlayCanvasRef.current;
     const t = fitRef.current;
@@ -213,9 +222,8 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    // 1. Synchronized Crosshairs
     if (showCrosshairs) {
-      const cross = getPlaneCrossUV(volume, plane, pos);
+      const cross = getPlaneCrossUV(volume, plane, posRef.current);
       const p = imgToScreen(t, cross.u, cross.v);
       const gap = 12;
 
@@ -224,7 +232,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       ctx.lineWidth = 1.1;
       ctx.globalAlpha = 0.85;
 
-      // Oblique tilt visualization if angled
       const tiltRad = (obliqueDeg * Math.PI) / 180;
       const cosT = Math.cos(tiltRad);
       const sinT = Math.sin(tiltRad);
@@ -251,7 +258,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
 
     ctx.font = '600 11.5px "IBM Plex Mono", monospace';
 
-    // 2. Length Measurements
     for (const m of lengths) {
       if (m.view !== plane || m.slice !== currentSliceIdx) continue;
       const a = imgToScreen(t, m.u1, m.v1);
@@ -301,7 +307,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       }
     }
 
-    // 3. Angle Measurements
     for (const ang of angles) {
       if (ang.view !== plane || ang.slice !== currentSliceIdx) continue;
       const p1 = imgToScreen(t, ang.u1, ang.v1);
@@ -350,8 +355,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       }
     }
 
-    // 4. ROI Measurements (confirmed + pending)
-    const activeRois = rois.filter((r) => r.view === plane && r.slice === currentSliceIdx);
     const drawRoiBox = (
       u1: number,
       v1: number,
@@ -389,7 +392,8 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       }
     };
 
-    for (const r of activeRois) {
+    for (const r of rois) {
+      if (r.view !== plane || r.slice !== currentSliceIdx) continue;
       drawRoiBox(
         r.u1,
         r.v1,
@@ -405,7 +409,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
       drawRoiBox(pr.u1, pr.v1, pr.u2, pr.v2, roiShape);
     }
 
-    // 5. Persistent HU Probes
     for (const pr of probes) {
       if (pr.view !== plane || pr.slice !== currentSliceIdx) continue;
       const p = imgToScreen(t, pr.u, pr.v);
@@ -434,7 +437,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     meta.color,
     obliqueDeg,
     plane,
-    pos,
     probes,
     roiShape,
     rois,
@@ -442,11 +444,13 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     volume
   ]);
 
-  const renderCanvas = useCallback(() => {
+  // Stage C1: Blit offscreen RGBA canvas onto display canvas (zero pixel math!)
+  const blitImageToScreen = useCallback(() => {
     const body = bodyRef.current;
     const canvas = imgCanvasRef.current;
     const overlay = overlayCanvasRef.current;
-    if (!body || !canvas || !overlay) return;
+    const off = offCanvasRef.current;
+    if (!body || !canvas || !overlay || !off) return;
 
     const rect = body.getBoundingClientRect();
     if (rect.width < 4 || rect.height < 4) return;
@@ -463,40 +467,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     }
     sizeRef.current = { w: rect.width, h: rect.height, dpr };
 
-    if (!offCanvasRef.current) {
-      offCanvasRef.current = document.createElement('canvas');
-    }
-    const off = offCanvasRef.current;
-    if (off.width !== dims.w || off.height !== dims.h) {
-      off.width = dims.w;
-      off.height = dims.h;
-    }
-
-    const sliceHU = extractMprSliceHU(volume, plane, pos, projMode, slabMm, obliqueDeg);
-    sliceHURef.current = sliceHU;
-
-    const offCtx = off.getContext('2d');
-    if (!offCtx) return;
-    const imgData = offCtx.createImageData(dims.w, dims.h);
-    const pixels = imgData.data;
-    const lut = get2DColorLut(colormap, invert);
-    const low = wl - ww / 2;
-    const invRange = 1 / Math.max(1, ww);
-
-    for (let i = 0; i < sliceHU.length; i++) {
-      let norm = (sliceHU[i] - low) * invRange;
-      if (norm < 0) norm = 0;
-      else if (norm > 1) norm = 1;
-      const idx = ((norm * 255) | 0) * 4;
-      const p = i * 4;
-      pixels[p] = lut[idx];
-      pixels[p + 1] = lut[idx + 1];
-      pixels[p + 2] = lut[idx + 2];
-      pixels[p + 3] = 255;
-    }
-    offCtx.putImageData(imgData, 0, 0);
-
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#000000';
@@ -516,39 +487,95 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     ctx.restore();
 
     drawOverlay();
-  }, [
-    colormap,
-    computeFit,
-    dims.h,
-    dims.w,
-    drawOverlay,
-    invert,
-    obliqueDeg,
-    plane,
-    pos,
-    projMode,
-    slabMm,
-    transform.flipH,
-    transform.flipV,
-    transform.rot90,
-    volume,
-    wl,
-    ww
-  ]);
+  }, [computeFit, dims.h, dims.w, drawOverlay, transform.flipH, transform.flipV, transform.rot90]);
+
+  // Stage B: Map sliceHU -> RGBA offscreen canvas (runs when slice data OR WW/WL/LUT changes)
+  const applyWindowToOffscreen = useCallback(() => {
+    const sliceHU = sliceHURef.current;
+    if (!sliceHU.length) return;
+
+    if (!offCanvasRef.current) {
+      offCanvasRef.current = document.createElement('canvas');
+    }
+    const off = offCanvasRef.current;
+    if (off.width !== dims.w || off.height !== dims.h) {
+      off.width = dims.w;
+      off.height = dims.h;
+      offImageDataRef.current = null;
+    }
+    const offCtx = off.getContext('2d', { alpha: false });
+    if (!offCtx) return;
+
+    if (!offImageDataRef.current) {
+      offImageDataRef.current = offCtx.createImageData(dims.w, dims.h);
+    }
+    const imgData = offImageDataRef.current;
+    const pixels32 = new Uint32Array(imgData.data.buffer);
+    const lut = get2DColorLut(colormap, invert);
+    const lut32 = new Uint32Array(lut.buffer, lut.byteOffset, 256);
+
+    const low = wl - ww / 2;
+    const invRange = 255 / Math.max(1, ww);
+    const len = sliceHU.length;
+
+    for (let i = 0; i < len; i++) {
+      let idx = ((sliceHU[i] - low) * invRange) | 0;
+      if (idx < 0) idx = 0;
+      else if (idx > 255) idx = 255;
+      pixels32[i] = lut32[idx];
+    }
+    offCtx.putImageData(imgData, 0, 0);
+    blitImageToScreen();
+  }, [blitImageToScreen, colormap, dims.h, dims.w, invert, wl, ww]);
+
+  // Stage A: Extract slice HU (runs ONLY when this plane's slice/projection/oblique/volume changes!)
+  const obliquePosKey = hasOblique ? `${pos.x},${pos.y},${pos.z}` : String(currentSliceIdx);
 
   useEffect(() => {
-    renderCanvas();
-  }, [renderCanvas]);
+    const total = dims.w * dims.h;
+    if (sliceHURef.current.length !== total) {
+      sliceHURef.current = new Float32Array(total);
+    }
+    extractMprSliceHU(
+      volume,
+      plane,
+      posRef.current,
+      projMode,
+      slabMm,
+      obliqueDeg,
+      sliceHURef.current
+    );
+    applyWindowToOffscreen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume, plane, obliquePosKey, projMode, slabMm, obliqueDeg, dims.w, dims.h]);
+
+  // Re-run Stage B when WW/WL/invert/colormap changes without re-extracting slice
+  useEffect(() => {
+    applyWindowToOffscreen();
+  }, [applyWindowToOffscreen]);
+
+  // Re-run Stage C1 when pan/zoom/flip/rotate changes without touching LUT or slice
+  useEffect(() => {
+    blitImageToScreen();
+  }, [blitImageToScreen]);
+
+  // Re-run Stage C2 (overlay only) when orthogonal cursor pos or annotations change
+  useEffect(() => {
+    drawOverlay();
+  }, [pos.x, pos.y, pos.z, drawOverlay]);
 
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
     const ro = new ResizeObserver(() => {
-      renderCanvas();
+      blitImageToScreen();
     });
     ro.observe(body);
-    return () => ro.disconnect();
-  }, [renderCanvas]);
+    return () => {
+      ro.disconnect();
+      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
+    };
+  }, [blitImageToScreen]);
 
   useEffect(() => {
     if (!registerCapture) return;
@@ -569,7 +596,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
   }, [plane, registerCapture]);
 
   const handlePointerDown = (ev: React.PointerEvent<HTMLDivElement>) => {
-    onActivate();
+    onActivate(plane);
     const body = bodyRef.current;
     const t = fitRef.current;
     if (!body || !t) return;
@@ -579,7 +606,6 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     const py = ev.clientY - rect.top;
     const img = screenToImg(t, px, py);
 
-    // Right-click or middle-click temporarily pans / windows cleanly
     const activeTool: ToolMode = ev.button === 1 ? 'pan' : ev.button === 2 ? 'window' : tool;
 
     gestureRef.current = {
@@ -594,12 +620,11 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     };
 
     if (activeTool === 'explore') {
-      const next = uvToVoxel(volume, plane, img.u, img.v, pos);
-      onMoveCursor(next);
+      onMoveCursor(uvToVoxel(volume, plane, img.u, img.v, posRef.current));
     } else if (activeTool === 'probe') {
       const u = Math.max(0, Math.min(dims.w - 1, Math.round(img.u)));
       const v = Math.max(0, Math.min(dims.h - 1, Math.round(img.v)));
-      const vox = uvToVoxel(volume, plane, u, v, pos);
+      const vox = uvToVoxel(volume, plane, u, v, posRef.current);
       const hu = sliceHURef.current[v * dims.w + u] ?? 0;
       onAddProbe({ view: plane, slice: currentSliceIdx, u, v, x: vox.x, y: vox.y, z: vox.z, hu });
     } else if (activeTool === 'measure') {
@@ -666,14 +691,15 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
     const img = screenToImg(t, px, py);
     pointerMoveUVRef.current = img;
 
+    // Update external HU store directly — ZERO React re-renders of parent/viewports!
     const u = Math.round(img.u);
     const v = Math.round(img.v);
     if (u >= 0 && u < dims.w && v >= 0 && v < dims.h) {
-      const vox = uvToVoxel(volume, plane, u, v, pos);
+      const vox = uvToVoxel(volume, plane, u, v, posRef.current);
       const hu = sliceHURef.current[v * dims.w + u] ?? 0;
-      onHoverVoxel({ x: vox.x, y: vox.y, z: vox.z, hu });
+      setHoverVoxelInfo({ x: vox.x, y: vox.y, z: vox.z, hu });
     } else {
-      onHoverVoxel(null);
+      setHoverVoxelInfo(null);
     }
 
     if ((tool === 'measure' && pendingMeasureRef.current) || (tool === 'angle' && pendingAngleRef.current.length > 0)) {
@@ -682,26 +708,40 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
 
     const g = gestureRef.current;
     if (!g) return;
-    const dx = px - g.startX;
-    const dy = py - g.startY;
 
-    if (g.tool === 'explore') {
-      onMoveCursor(uvToVoxel(volume, plane, img.u, img.v, pos));
-    } else if (g.tool === 'window') {
-      onWindowChange(g.startWW + dx * 2.5, g.startWL - dy * 2.5);
-    } else if (g.tool === 'pan') {
-      onTransformChange({ ...transform, panX: g.startPanX + dx, panY: g.startPanY + dy });
-    } else if (g.tool === 'zoom') {
-      const nextZoom = Math.max(0.35, Math.min(8, g.startZoom * (1 - dy / 220)));
-      onTransformChange({ ...transform, zoom: nextZoom });
-    } else if (g.tool === 'roi' && pendingRoiRef.current) {
+    if (g.tool === 'roi' && pendingRoiRef.current) {
       pendingRoiRef.current.u2 = img.u;
       pendingRoiRef.current.v2 = img.v;
       drawOverlay();
+      return;
     }
+
+    // Coalesce high-frequency mouse drags to animation frames
+    if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
+    const dx = px - g.startX;
+    const dy = py - g.startY;
+    const imgCopy = { u: img.u, v: img.v };
+
+    moveRafRef.current = requestAnimationFrame(() => {
+      moveRafRef.current = 0;
+      if (g.tool === 'explore') {
+        onMoveCursor(uvToVoxel(volume, plane, imgCopy.u, imgCopy.v, posRef.current));
+      } else if (g.tool === 'window') {
+        onWindowChange(g.startWW + dx * 2.5, g.startWL - dy * 2.5);
+      } else if (g.tool === 'pan') {
+        onTransformChange(plane, { ...transform, panX: g.startPanX + dx, panY: g.startPanY + dy });
+      } else if (g.tool === 'zoom') {
+        const nextZoom = Math.max(0.35, Math.min(8, g.startZoom * (1 - dy / 220)));
+        onTransformChange(plane, { ...transform, zoom: nextZoom });
+      }
+    });
   };
 
   const endGesture = () => {
+    if (moveRafRef.current) {
+      cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = 0;
+    }
     const g = gestureRef.current;
     if (g && g.tool === 'roi' && pendingRoiRef.current) {
       const pr = pendingRoiRef.current;
@@ -730,24 +770,21 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
 
   const handleWheel = (ev: React.WheelEvent<HTMLDivElement>) => {
     ev.preventDefault();
-    onActivate();
+    onActivate(plane);
     if (ev.ctrlKey || ev.metaKey) {
       const factor = ev.deltaY < 0 ? 1.12 : 0.89;
-      onTransformChange({
+      onTransformChange(plane, {
         ...transform,
         zoom: Math.max(0.35, Math.min(8, transform.zoom * factor))
       });
     } else {
       const step = (ev.deltaY > 0 ? 1 : -1) * (ev.shiftKey ? 5 : 1);
       const nextSlice = Math.max(0, Math.min(dims.maxSlice, currentSliceIdx + step));
-      onMoveCursor({ ...pos, [dims.axis]: nextSlice });
+      onMoveCursor({ ...posRef.current, [dims.axis]: nextSlice });
     }
   };
 
-  const projTag =
-    projMode === 'thin'
-      ? ''
-      : ` · ${projMode.toUpperCase()} ${slabMm.toFixed(0)}mm`;
+  const projTag = projMode === 'thin' ? '' : ` · ${projMode.toUpperCase()} ${slabMm.toFixed(0)}mm`;
 
   return (
     <section
@@ -755,7 +792,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
         isActive ? 'border-opacity-100' : 'border-slate-800'
       }`}
       style={{ borderColor: isActive ? meta.color : undefined }}
-      onClick={onActivate}
+      onClick={() => onActivate(plane)}
     >
       <div className="flex items-center gap-2 px-2.5 py-1.5 bg-[#0E1118] border-b border-slate-800/80 shrink-0">
         <span
@@ -771,7 +808,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onTransformChange({ ...transform, flipH: !transform.flipH });
+            onTransformChange(plane, { ...transform, flipH: !transform.flipH });
           }}
           title="Voltear horizontalmente"
           className={`p-1 rounded border text-slate-400 hover:text-slate-100 transition-colors ${
@@ -784,7 +821,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onTransformChange({ ...transform, rot90: (transform.rot90 + 1) % 4 });
+            onTransformChange(plane, { ...transform, rot90: (transform.rot90 + 1) % 4 });
           }}
           title="Rotar 90°"
           className="p-1 rounded border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-100 transition-colors"
@@ -795,7 +832,7 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onToggleExpand();
+            onToggleExpand(plane);
           }}
           title={isExpanded ? 'Volver a rejilla' : `Ampliar vista ${meta.title}`}
           className="p-1 rounded border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-cyan-400 hover:border-cyan-500/50 transition-colors"
@@ -813,16 +850,15 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
         onPointerCancel={endGesture}
         onPointerLeave={() => {
           pointerMoveUVRef.current = null;
-          onHoverVoxel(null);
+          setHoverVoxelInfo(null);
         }}
         onWheel={handleWheel}
-        onDoubleClick={onToggleExpand}
+        onDoubleClick={() => onToggleExpand(plane)}
         onContextMenu={(e) => e.preventDefault()}
       >
         <canvas ref={imgCanvasRef} className="absolute inset-0 w-full h-full block" />
         <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full block pointer-events-none" />
 
-        {/* Anatomical Orientation Markers */}
         <span className="pointer-events-none absolute top-1.5 left-1/2 -translate-x-1/2 font-mono text-[11px] font-semibold text-white/75 drop-shadow">
           {meta.oriT}
         </span>
@@ -836,16 +872,17 @@ export const Viewport2D: React.FC<Viewport2DProps> = ({
           {meta.oriR}
         </span>
 
-        {/* Clinical Telemetry Corners */}
         <div className="pointer-events-none absolute left-2 bottom-1.5 font-mono text-[10px] leading-tight text-white/70 drop-shadow">
           <div>WW {Math.round(ww)} · WL {Math.round(wl)}</div>
           <div>{dims.w}×{dims.h} · {dims.su.toFixed(2)}mm</div>
         </div>
         <div className="pointer-events-none absolute right-2 bottom-1.5 font-mono text-[10px] leading-tight text-right text-white/70 drop-shadow">
           <div>Zoom {Math.round(transform.zoom * 100)}%</div>
-          {Math.abs(obliqueDeg) > 0.2 && <div>Oblicuo {obliqueDeg.toFixed(0)}°</div>}
+          {hasOblique && <div>Oblicuo {obliqueDeg.toFixed(0)}°</div>}
         </div>
       </div>
     </section>
   );
 };
+
+export const Viewport2D = memo(Viewport2DInner);

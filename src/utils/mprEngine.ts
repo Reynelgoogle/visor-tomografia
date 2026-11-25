@@ -140,10 +140,12 @@ export function extractMprSliceHU(
   pos: { x: number; y: number; z: number },
   projMode: MprProjectionMode,
   slabMm: number,
-  obliqueDeg: number
+  obliqueDeg: number,
+  outBuffer?: Float32Array
 ): Float32Array {
   const dims = getPlaneDims(vol, plane);
-  const out = new Float32Array(dims.w * dims.h);
+  const total = dims.w * dims.h;
+  const out = outBuffer && outBuffer.length === total ? outBuffer : new Float32Array(total);
   const { nx, ny, nz, data } = vol;
   const nxy = nx * ny;
 
