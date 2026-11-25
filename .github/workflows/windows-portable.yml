@@ -1,6 +1,7 @@
 # Solo la versión portable de Windows: sin instalador, sin MSI/NSIS.
 # Cada push a main (que toque la app) y cada ejecución manual genera
-# un único .exe portable como artefacto, listo para descargar y probar.
+# un único .exe portable y lo publica como Release (no como artefacto,
+# para no depender de la cuota de almacenamiento de Actions).
 name: Windows portable
 
 on:
@@ -17,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-portable:
@@ -44,10 +45,10 @@ jobs:
       - name: Empaquetar portable Windows
         run: npx electron-builder --win portable
 
-      - name: Subir .exe portable
-        uses: actions/upload-artifact@v4
-        with:
-          name: visor-tomografia-windows-portable
-          path: release/*.exe
-          if-no-files-found: error
-          retention-days: 30
+      - name: Publicar .exe como Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = Get-ChildItem -Path release -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "No se encontró ningún .exe en release/"; exit 1 }
+          gh release create "win-portable-${{ github.run_number }}" $exe.FullName --title "Visor de Tomografía — Windows portable (build ${{ github.run_number }})" --notes "Portable para Windows, sin instalador. Construido desde el commit ${{ github.sha }}."
