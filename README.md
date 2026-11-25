@@ -21,9 +21,11 @@ node server.js   # sirve dist/ en el puerto 3000
 
 ## Windows portable (sin instalador)
 
-La versión de Windows se construye solo como **portable**: un único
-`.exe` que se ejecuta con doble clic, sin instalar nada y sin permisos
-de administrador. No hay versión con instalador (MSI/NSIS).
+La versión de Windows se construye solo como **portable** con
+**Tauri** (Rust + WebView2 del sistema): un único `.exe` pequeño que
+se ejecuta con doble clic, sin instalar nada y sin permisos de
+administrador. No hay versión con instalador (MSI/NSIS). Requiere
+WebView2, que viene incluido en Windows 10 y 11.
 
 Se genera en GitHub Actions (`.github/workflows/windows-portable.yml`),
 en `windows-latest`, con cada push a `main` que toque la app y también
