@@ -5,6 +5,16 @@
 name: Windows portable
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'vite.config.ts'
+      - 'index.html'
+      - '.github/workflows/windows-portable.yml'
   workflow_dispatch:
 
 permissions:
