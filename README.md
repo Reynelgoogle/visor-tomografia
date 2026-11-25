@@ -27,12 +27,15 @@ de administrador. No hay versión con instalador (MSI/NSIS).
 
 Se genera en GitHub Actions (`.github/workflows/windows-portable.yml`),
 en `windows-latest`, con cada push a `main` que toque la app y también
-bajo demanda (Run workflow):
+bajo demanda (Run workflow). Cada ejecución publica el `.exe` como un
+Release nuevo (no se usan artefactos de Actions, para no depender de
+su cuota de almacenamiento):
 
-1. Abre **Actions → Windows portable** en el repo.
-2. Entra en la ejecución más reciente y descarga el artefacto
-   **visor-tomografia-windows-portable**.
-3. Descomprime y ejecuta `Visor de Tomografía-Windows-Portable-1.0.0.exe`.
+1. Abre **Releases** en el repo
+   (https://github.com/Reynelgoogle/visor-tomografia/releases).
+2. Descarga el `.exe` del Release más reciente
+   (`Visor de Tomografía-Windows-Portable-1.0.0.exe`).
+3. Ejecútalo con doble clic, sin instalar nada.
 
 Al arrancar, el visor escribe `visor-timing.log` junto al `.exe` con
 `app-ready-ms` (tiempo hasta que la ventana está lista) y
