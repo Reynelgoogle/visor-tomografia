@@ -70,7 +70,7 @@ const DEFAULT_CLIP_BOX: ClipBox = {
 
 const DEFAULT_CAMERA: Camera3DState = {
   yaw: 0.48,
-  pitch: 0.22,
+  pitch: -0.2,
   dist: 2.15
 };
 
@@ -258,12 +258,15 @@ export function App() {
     setProbes([]);
     setObliqueDeg(0);
 
-    // Pick smart 3D preset based on phantom or study description
+    // Pick smart 3D preset based on phantom or study description.
+    // The canonical "3D CT" look is a shaded bone surface, so bone is the
+    // default; lung/angio/viscera remain one click away in the 3D panel.
     const desc = `${nextVol.meta.study} ${nextVol.meta.series}`.toLowerCase();
-    if (nextVol.meta.phantomId === 'torax' || desc.includes('thorax') || desc.includes('torax') || desc.includes('pulm')) {
-      setSettings3D((prev) => ({ ...prev, preset: 'lung', thresholdHU: -850, contrastScale: 1 }));
-    } else if (nextVol.meta.phantomId === 'abdomen' || desc.includes('abdo') || desc.includes('renal') || desc.includes('pelv')) {
+    if (nextVol.meta.phantomId === 'abdomen' || desc.includes('abdo') || desc.includes('renal') || desc.includes('pelv')) {
       setSettings3D((prev) => ({ ...prev, preset: 'viscera', thresholdHU: 35, contrastScale: 1 }));
+    } else if (nextVol.meta.isSynthetic) {
+      // Demo phantoms default to the canonical bone surface view.
+      setSettings3D((prev) => ({ ...prev, preset: 'bone', thresholdHU: 180, contrastScale: 1 }));
     } else if (desc.includes('angio') || desc.includes('cta')) {
       setSettings3D((prev) => ({ ...prev, preset: 'angio', thresholdHU: 115, contrastScale: 1 }));
     } else {

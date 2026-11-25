@@ -64,6 +64,7 @@ uniform float uEdgeBoost;
 uniform float uLow;
 uniform float uHigh;
 uniform float uSteps;
+uniform float uSampleScale;
 uniform int uMode;
 uniform int uShowCrosshairs;
 uniform int uShowClipBox;
@@ -153,7 +154,7 @@ void main() {
     }
   }
 
-  for (float stepIdx = 0.0; stepIdx < 420.0; stepIdx += 1.0) {
+  for (float stepIdx = 0.0; stepIdx < 640.0; stepIdx += 1.0) {
     if (stepIdx >= uSteps || t >= tf) break;
     vec3 wNorm = (ro + rd * t - uBoxMin) * invSpan;
     vec3 p = vec3(wNorm.x, 1.0 - wNorm.z, wNorm.y);
@@ -207,7 +208,12 @@ void main() {
         }
         float depthAtten = mix(1.0, 1.0 - acc.a * 0.25, uShading);
         col *= uBrightness * depthAtten;
-        float alpha = clamp(a * boundaryWeight * uOpacity * dt * 4.2, 0.0, 1.0);
+        // Opacity correction. The LUT stores a per-voxel opacity, but the ray
+        // advances dt in normalized box units. Convert the per-voxel alpha to
+        // the current sample spacing so the result does not depend on uSteps
+        // and so a 2-3 voxel bone shell actually becomes opaque.
+        float aRef = clamp(a * boundaryWeight * uOpacity, 0.0, 1.0);
+        float alpha = 1.0 - pow(max(1.0 - aRef, 0.0), dt * uSampleScale);
         acc.rgb += (1.0 - acc.a) * alpha * col;
         acc.a += (1.0 - acc.a) * alpha;
         if (acc.a > 0.985) break;
@@ -343,18 +349,50 @@ function resampleVolumeForGPU(
   const sy = volume.ny / ny;
   const sz = volume.nz / nz;
   const srcNxy = volume.nx * volume.ny;
+  const nxMax = volume.nx - 1;
+  const nyMax = volume.ny - 1;
+  const nzMax = volume.nz - 1;
 
+  // Trilinear resampling. Nearest-neighbour made downsampled bone surfaces
+  // jagged/streaky; linear interpolation keeps thin cortex readable.
   for (let z = 0; z < nz; z++) {
-    const oz = Math.min(volume.nz - 1, Math.floor(z * sz));
-    const zBase = oz * srcNxy;
+    const fz = Math.min(nzMax, Math.max(0, (z + 0.5) * sz - 0.5));
+    const z0 = Math.floor(fz);
+    const z1 = Math.min(nzMax, z0 + 1);
+    const tz = fz - z0;
+    const z0Base = z0 * srcNxy;
+    const z1Base = z1 * srcNxy;
     const dstZ = z * nx * ny;
     for (let y = 0; y < ny; y++) {
-      const oy = Math.min(volume.ny - 1, Math.floor(y * sy));
-      const yBase = zBase + oy * volume.nx;
+      const fy = Math.min(nyMax, Math.max(0, (y + 0.5) * sy - 0.5));
+      const y0 = Math.floor(fy);
+      const y1 = Math.min(nyMax, y0 + 1);
+      const ty = fy - y0;
+      const y00 = z0Base + y0 * volume.nx;
+      const y01 = z0Base + y1 * volume.nx;
+      const y10 = z1Base + y0 * volume.nx;
+      const y11 = z1Base + y1 * volume.nx;
       const dstY = dstZ + y * nx;
       for (let x = 0; x < nx; x++) {
-        const ox = Math.min(volume.nx - 1, Math.floor(x * sx));
-        out[dstY + x] = src[yBase + ox];
+        const fx = Math.min(nxMax, Math.max(0, (x + 0.5) * sx - 0.5));
+        const x0 = Math.floor(fx);
+        const x1 = Math.min(nxMax, x0 + 1);
+        const tx = fx - x0;
+        const c000 = src[y00 + x0];
+        const c100 = src[y00 + x1];
+        const c010 = src[y01 + x0];
+        const c110 = src[y01 + x1];
+        const c001 = src[y10 + x0];
+        const c101 = src[y10 + x1];
+        const c011 = src[y11 + x0];
+        const c111 = src[y11 + x1];
+        const c00 = c000 + (c100 - c000) * tx;
+        const c01 = c010 + (c110 - c010) * tx;
+        const c10 = c001 + (c101 - c001) * tx;
+        const c11 = c011 + (c111 - c011) * tx;
+        const c0 = c00 + (c01 - c00) * ty;
+        const c1 = c10 + (c11 - c10) * ty;
+        out[dstY + x] = c0 + (c1 - c0) * tz;
       }
     }
   }
@@ -528,7 +566,7 @@ const Viewport3DInner: React.FC<Viewport3DProps> = ({
       'uMVP', 'uCamPos', 'uBoxMin', 'uBoxMax', 'uClipMin', 'uClipMax',
       'uInvVolDims', 'uInvVoxelSpacing', 'uCursor', 'uBgColor',
       'uThreshold', 'uOpacity', 'uShading', 'uBrightness', 'uEdgeBoost',
-      'uLow', 'uHigh', 'uSteps', 'uMode', 'uShowCrosshairs', 'uShowClipBox',
+      'uLow', 'uHigh', 'uSteps', 'uSampleScale', 'uMode', 'uShowCrosshairs', 'uShowClipBox',
       'uVol', 'uLUT'
     ];
     const uniforms: Record<string, WebGLUniformLocation | null> = {};
@@ -547,8 +585,8 @@ const Viewport3DInner: React.FC<Viewport3DProps> = ({
       const cam = localCameraRef.current;
 
       // Progressive resolution scaling: fast pass during interaction, crisp pass when idle
-      const maxDim = isInteractive ? 440 : st.highQuality ? 760 : 520;
-      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      const maxDim = isInteractive ? 640 : st.highQuality ? 1536 : 1024;
+      const dpr = Math.min(1.25, window.devicePixelRatio || 1);
       const fit = Math.min(1, maxDim / Math.max(rect.width, rect.height));
       const w = Math.max(2, Math.round(rect.width * dpr * fit));
       const h = Math.max(2, Math.round(rect.height * dpr * fit));
@@ -601,8 +639,21 @@ const Viewport3DInner: React.FC<Viewport3DProps> = ({
       gl.uniform1f(uniforms.uLow, (curWL - curWW / 2 - VOLUME_HU_MIN) / VOLUME_HU_RANGE);
       gl.uniform1f(uniforms.uHigh, (curWL + curWW / 2 - VOLUME_HU_MIN) / VOLUME_HU_RANGE);
 
-      const steps = isInteractive ? 128 : st.highQuality ? 340 : 210;
+      // Sample count follows the volume resolution: at least ~1 sample per
+      // voxel on the HD pass so thin cortical bone is not skipped.
+      const maxVox = Math.max(
+        gpuDimsRef.current.nx,
+        gpuDimsRef.current.ny,
+        gpuDimsRef.current.nz
+      );
+      const steps = isInteractive
+        ? Math.min(192, Math.max(96, Math.round(maxVox * 0.35)))
+        : Math.min(480, Math.max(210, Math.round(maxVox * (st.highQuality ? 1 : 0.65))));
       gl.uniform1f(uniforms.uSteps, steps);
+      gl.uniform1f(
+        uniforms.uSampleScale,
+        Math.max(gpuDimsRef.current.nx, gpuDimsRef.current.ny, gpuDimsRef.current.nz)
+      );
 
       gl.uniform1i(uniforms.uMode, MODE_MAP[st.renderMode] ?? 0);
       gl.uniform1i(uniforms.uShowCrosshairs, st.showCrosshairs ? 1 : 0);
