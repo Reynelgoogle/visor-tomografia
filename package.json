@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0 --port 3000",
     "start": "node server.js",
     "build": "vite build",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "dist:win": "electron-builder --win portable"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -25,5 +26,30 @@
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
-  }
+  },
+  "main": "electron/main.cjs",
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.reynelgoogle.visor-tomografia",
+    "productName": "Visor de Tomografía",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": "portable",
+      "artifactName": "${productName}-Windows-Portable-${version}.${ext}"
+    }
+  },
+  "description": "Visor de tomografía DICOM con MPR multiplanar y reconstrucción volumétrica 3D por GPU.",
+  "author": "Reynelgoogle"
 }
