@@ -1,25 +1,53 @@
-# Visor de Tomografía — Prototipo fase 1
+# Visor de Tomografía
 
-Prototipo web estático del visor de tomografía: 4 vistas sincronizadas
-(axial, coronal, sagital MPR y 3D en WebGL2), carga local real de DICOM,
-ventanas HU, mediciones/ROI, cine y exportación PNG.
+Visor de tomografía DICOM con MPR multiplanar (axial, coronal, sagital),
+proyecciones MIP/MinIP/Avg, mediciones clínicas y reconstrucción
+volumétrica 3D por GPU (WebGL2). Carga local real de DICOM, ventanas HU,
+mediciones/ROI, cine y exportación PNG. Incluye volúmenes sintéticos
+(fantasmas anatómicos: cráneo, tórax, abdomen) para probar sin estudios
+reales. Todo se procesa en local: no sube estudios a ningún servidor.
 
-## Cómo usarlo
+Stack: React 19 + TypeScript + Vite + Tailwind CSS. `dicom-parser` para
+leer DICOM, `server.js` (Express) solo para servir el build web.
 
-Abre `index.html` en el navegador (o sírvelo como página estática).
-Carga archivos DICOM locales desde la interfaz. No sube estudios a
-ningún servidor: todo se procesa en local.
+## Web (desarrollo)
 
-## Estado
+```sh
+bun install
+bun run dev      # http://localhost:3000
+bun run build    # genera dist/
+node server.js   # sirve dist/ en el puerto 3000
+```
 
-Prototipo de fase 1, del 2026-11-08/09. **No verificado funcionalmente
-en navegador**: el último build está marcado como correcto, pero la
-auditoría final no llegó a cargar la página, así que no se puede
-presentar como terminado ni probado.
+## Windows portable (sin instalador)
 
-El plan completo y la arquitectura (OHIF Viewer + Cornerstone3D,
-Orthanc como PACS, VTK.js para 3D, 3D Slicer como compañero de
-escritorio) están en el PDF del plan de 15 páginas del proyecto.
+La versión de Windows se construye solo como **portable**: un único
+`.exe` que se ejecuta con doble clic, sin instalar nada y sin permisos
+de administrador. No hay versión con instalador (MSI/NSIS).
+
+Se genera en GitHub Actions (`.github/workflows/windows-portable.yml`),
+en `windows-latest`, con cada push a `main` que toque la app y también
+bajo demanda (Run workflow):
+
+1. Abre **Actions → Windows portable** en el repo.
+2. Entra en la ejecución más reciente y descarga el artefacto
+   **visor-tomografia-windows-portable**.
+3. Descomprime y ejecuta `Visor de Tomografía-Windows-Portable-1.0.0.exe`.
+
+Al arrancar, el visor escribe `visor-timing.log` junto al `.exe` con
+`app-ready-ms` (tiempo hasta que la ventana está lista) y
+`window-load-ms` (tiempo hasta que la app termina de cargar).
+
+## Probar tiempos de carga y respuesta (casos reales)
+
+1. **Arranque:** anota `app-ready-ms` y `window-load-ms` del log y el
+   tiempo hasta que se ve el fantasma de cráneo.
+2. **Fantasmas:** cambia entre cráneo, tórax y abdomen y anota el tiempo
+   hasta que cambia la vista 3D.
+3. **DICOM real:** carga una carpeta/serie DICOM real y anota el tiempo
+   de carga, el cambio de corte (cine) y la rotación 3D.
+4. **Sin internet:** el visor funciona offline, salvo las fuentes de
+   Google Fonts, que caen a la fuente del sistema.
 
 ## Alcance
 
