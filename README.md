@@ -13,10 +13,16 @@ leer DICOM, `server.js` (Express) solo para servir el build web.
 ## Web (desarrollo)
 
 ```sh
-bun install
-bun run dev      # http://localhost:3000
-bun run build    # genera dist/
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # genera dist/
 node server.js   # sirve dist/ en el puerto 3000
+```
+
+Para abrir la ventana nativa de Tauri en desarrollo:
+
+```sh
+npm run tauri dev
 ```
 
 ## Windows portable (sin instalador)
