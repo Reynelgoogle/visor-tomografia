@@ -1,0 +1,12 @@
+[package]
+name = "visor-tomografia"
+version = "1.0.0"
+description = "Visor de tomografía DICOM con MPR multiplanar y reconstrucción volumétrica 3D por GPU"
+authors = ["Reynelgoogle"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
