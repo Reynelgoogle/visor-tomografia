@@ -1,20 +1,10 @@
 # Solo la versión portable de Windows: sin instalador, sin MSI/NSIS.
-# Cada push a main (que toque la app) y cada ejecución manual genera
-# un único .exe portable y lo publica como Release (no como artefacto,
-# para no depender de la cuota de almacenamiento de Actions).
+# Tauri (Rust + WebView2 del sistema): un único .exe portable que se
+# publica como Release. Cada push a main (que toque la app) y cada
+# ejecución manual genera un Release nuevo.
 name: Windows portable
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'electron/**'
-      - 'package.json'
-      - 'bun.lock'
-      - 'vite.config.ts'
-      - 'index.html'
-      - '.github/workflows/windows-portable.yml'
   workflow_dispatch:
 
 permissions:
@@ -36,19 +26,25 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Caché de Cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Instalar dependencias
         run: bun install --frozen-lockfile
 
-      - name: Build web (Vite)
-        run: bun run build
-
-      - name: Empaquetar portable Windows
-        run: npx electron-builder --win portable
+      - name: Construir portable Windows (Tauri)
+        run: bun run tauri build
 
       - name: Publicar .exe como Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $exe = Get-ChildItem -Path release -Filter *.exe | Select-Object -First 1
-          if (-not $exe) { Write-Error "No se encontró ningún .exe en release/"; exit 1 }
-          gh release create "win-portable-${{ github.run_number }}" $exe.FullName --title "Visor de Tomografía — Windows portable (build ${{ github.run_number }})" --notes "Portable para Windows, sin instalador. Construido desde el commit ${{ github.sha }}."
+          $exe = Get-ChildItem -Path src-tauri\target\release -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "No se encontró ningún .exe en src-tauri\target\release\"; exit 1 }
+          $dest = "release\Visor de Tomografía-Windows-Portable-1.0.0.exe"
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item $exe.FullName $dest
+          gh release create "win-portable-${{ github.run_number }}" $dest --title "Visor de Tomografía — Windows portable (build ${{ github.run_number }})" --notes "Portable para Windows (Tauri), sin instalador. Requiere WebView2, incluido en Windows 10/11. Construido desde el commit ${{ github.sha }}."
