@@ -1,0 +1,53 @@
+# Solo la versión portable de Windows: sin instalador, sin MSI/NSIS.
+# Cada push a main (que toque la app) y cada ejecución manual genera
+# un único .exe portable como artefacto, listo para descargar y probar.
+name: Windows portable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'electron/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'vite.config.ts'
+      - 'index.html'
+      - '.github/workflows/windows-portable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Build web (Vite)
+        run: bun run build
+
+      - name: Empaquetar portable Windows
+        run: npx electron-builder --win portable
+
+      - name: Subir .exe portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: visor-tomografia-windows-portable
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
